@@ -457,10 +457,21 @@ int faidx_seq_len(const faidx_t *fai, const char *seq)
 
 char *faidx_fetch_seq(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, int *len)
 {
+    char* seq = (char*)malloc(p_end_i - p_beg_i + 2);
+    faidx_fetch_seq_into_buffer(fai, c_name, p_beg_i, p_end_i, seq, len);
+    if((*len) < 0)
+    {
+        free(seq);
+        seq = 0;
+    }
+    return seq;
+}
+
+void faidx_fetch_seq_into_buffer(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, char* seq, int *len)
+{
     int l, c;
     khiter_t iter;
     faidx1_t val;
-    char *seq=NULL;
 
     // Adjust position
     iter = kh_get(s, fai->hash, c_name);
@@ -468,7 +479,7 @@ char *faidx_fetch_seq(const faidx_t *fai, const char *c_name, int p_beg_i, int p
     {
         *len = -2;
         fprintf(stderr, "[fai_fetch_seq] The sequence \"%s\" not found\n", c_name);
-        return NULL;
+        return;
     }
     val = kh_value(fai->hash, iter);
     if(p_end_i < p_beg_i) p_beg_i = p_end_i;
@@ -483,15 +494,13 @@ char *faidx_fetch_seq(const faidx_t *fai, const char *c_name, int p_beg_i, int p
     {
         *len = -1;
         fprintf(stderr, "[fai_fetch_seq] Error: fai_fetch failed. (Seeking in a compressed, .gzi unindexed, file?)\n");
-        return NULL;
+        return;
     }
     l = 0;
-    seq = (char*)malloc(p_end_i - p_beg_i + 2);
     while ( (c=bgzf_getc(fai->bgzf))>=0 && l < p_end_i - p_beg_i + 1)
         if (isgraph(c)) seq[l++] = c;
     seq[l] = '\0';
     *len = l;
-    return seq;
 }
 
 int faidx_has_seq(const faidx_t *fai, const char *seq)

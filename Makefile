@@ -28,9 +28,18 @@ RANLIB = ranlib
 
 CPPFLAGS =
 # TODO: probably update cram code to make it compile cleanly with -Wc++-compat
-CFLAGS   = -g -Wall -O2
+ifdef DEBUG
+  CFLAGS = -DDEBUG -g -gdwarf-2 -g3
+  LDFLAGS  = -g -gdwarf-2 -g3
+else
+  CFLAGS = -O3
+  LDFLAGS  =
+endif
+ifdef PROFILE
+  CFLAGS += -pg
+endif
+CFLAGS += -Wall
 EXTRA_CFLAGS_PIC = -fpic
-LDFLAGS  =
 LIBS     =
 
 # For now these don't work too well as samtools also needs to know to

@@ -271,7 +271,8 @@ static void bcf_sr_destroy1(bcf_sr_t *reader)
     if ( reader->tbx_idx ) tbx_destroy(reader->tbx_idx);
     if ( reader->bcf_idx ) hts_idx_destroy(reader->bcf_idx);
     bcf_hdr_destroy(reader->header);
-    hts_close(reader->file);
+    if(reader->file)
+        hts_close(reader->file);
     if ( reader->itr ) tbx_itr_destroy(reader->itr);
     int j;
     for (j=0; j<reader->mbuffer; j++)
@@ -516,8 +517,9 @@ static void _reader_fill_buffer(bcf_srs_t *files, bcf_sr_t *reader)
             if ( !has_filter(reader, reader->buffer[reader->nbuffer+1]) ) continue;
         }
         reader->nbuffer++;
-
-        if ( reader->buffer[reader->nbuffer]->pos != reader->buffer[1]->pos ) break;    // the buffer is full
+        // the buffer is full
+        if(reader->read_one_record_only || ( reader->buffer[reader->nbuffer]->pos != reader->buffer[1]->pos ))
+            break;
     }
     if ( ret<0 )
     {
@@ -892,7 +894,7 @@ static bcf_sr_regions_t *_regions_init_string(const char *str)
         if ( *ep==':' )
         {
             sp = ep+1;
-            from = hts_parse_decimal(sp,(char**)&ep,0);
+            from = strtoll(sp,(char**)&ep, 10);
             if ( sp==ep )
             {
                 fprintf(stderr,"[%s:%d %s] Could not parse the region(s): %s\n", __FILE__,__LINE__,__FUNCTION__,str);
@@ -901,7 +903,9 @@ static bcf_sr_regions_t *_regions_init_string(const char *str)
             if ( !*ep || *ep==',' )
             {
                 _regions_add(reg, tmp.s, from, from);
-                sp = ep;
+                if(!*ep)
+                    break;
+                sp = ++ep;
                 continue;
             }
             if ( *ep!='-' )
@@ -909,9 +913,8 @@ static bcf_sr_regions_t *_regions_init_string(const char *str)
                 fprintf(stderr,"[%s:%d %s] Could not parse the region(s): %s\n", __FILE__,__LINE__,__FUNCTION__,str);
                 free(reg); free(tmp.s); return NULL;
             }
-            ep++;
-            sp = ep;
-            to = hts_parse_decimal(sp,(char**)&ep,0);
+            sp = ++ep;
+            to = strtoll(sp,(char**)&ep, 10);
             if ( *ep && *ep!=',' )
             {
                 fprintf(stderr,"[%s:%d %s] Could not parse the region(s): %s\n", __FILE__,__LINE__,__FUNCTION__,str);
@@ -920,7 +923,7 @@ static bcf_sr_regions_t *_regions_init_string(const char *str)
             if ( sp==ep ) to = MAX_CSI_COOR-1;
             _regions_add(reg, tmp.s, from, to);
             if ( !*ep ) break;
-            sp = ep;
+            sp = ++ep;
         }
         else
         {

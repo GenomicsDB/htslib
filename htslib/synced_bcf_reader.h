@@ -103,6 +103,7 @@ typedef struct
 {
     htsFile *file;
     tbx_t *tbx_idx;
+    unsigned char read_one_record_only;   //flag that indicates that only 1 record should be read at a time
     hts_idx_t *bcf_idx;
     bcf_hdr_t *header;
     hts_itr_t *itr;

@@ -2716,10 +2716,12 @@ static void bcf_set_variant_type(const char *ref, const char *alt, variant_t *va
     if ( alt[0]=='<' )
     {
         if ( alt[1]=='X' && alt[2]=='>' ) { var->n = 0; var->type = VCF_REF; return; }  // mpileup's X allele shouldn't be treated as variant
+        if( strncmp(alt, "<NON_REF>", 9) == 0)  { var->n = 0; var->type = VCF_NON_REF; return; }
         if ( alt[1]=='*' && alt[2]=='>' ) { var->n = 0; var->type = VCF_REF; return; }
         var->type = VCF_OTHER;
         return;
     }
+    if( !alt[1] && alt[0] == '*') { var->n = 0; var->type = VCF_SPANNING_DELETION; return; }
 
     const char *r = ref, *a = alt;
     while (*r && *a && toupper(*r)==toupper(*a) ) { r++; a++; }     // unfortunately, matching REF,ALT case is not guaranteed
@@ -2774,6 +2776,7 @@ static void bcf_set_variant_types(bcf1_t *b)
     }
     int i;
     b->d.var_type = 0;
+    b->d.var[0].type = VCF_REF;
     for (i=1; i<b->n_allele; i++)
     {
         bcf_set_variant_type(d->allele[0],d->allele[i], &d->var[i]);
@@ -3292,6 +3295,16 @@ int bcf_get_info_values(const bcf_hdr_t *hdr, bcf1_t *line, const char *tag, voi
     return -4;  // this can never happen
 }
 
+void bcf_set_end_point_from_info(const bcf_hdr_t* hdr, bcf1_t* line)
+{
+    bcf_unpack(line, BCF_UN_INFO);
+    bcf_info_t* info = bcf_get_info(hdr, line, "END");
+    if(info)
+        line->m_end_point = info->v1.i - 1; //END value is 1 based, line->pos is 0 based, change to 0 based
+    else        //no END tag, end is same as pos if not deletion, else depends on rlen
+        line->m_end_point = line->pos + line->rlen - 1;
+}
+
 int bcf_get_format_string(const bcf_hdr_t *hdr, bcf1_t *line, const char *tag, char ***dst, int *ndst)
 {
     int i,tag_id = bcf_hdr_id2int(hdr, BCF_DT_ID, tag);
@@ -3400,3 +3413,12 @@ int bcf_get_format_values(const bcf_hdr_t *hdr, bcf1_t *line, const char *tag, v
     return nsmpl*fmt->n;
 }
 
+uint64_t bcf_hdr_id2contig_length(const bcf_hdr_t* hdr, const int id)
+{
+    bcf_hrec_t* hrec = bcf_hdr_id2hrec(hdr, BCF_DT_CTG, 0, id);
+    int i = 0;
+    for(i=0;i<hrec->nkeys;++i)
+        if(strcmp(hrec->keys[i], "length") == 0)
+            return strtoull(hrec->vals[i], 0, 10);
+    return 0;
+}

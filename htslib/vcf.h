@@ -58,12 +58,16 @@ extern "C" {
 #define BCF_HT_INT  1
 #define BCF_HT_REAL 2
 #define BCF_HT_STR  3
+#define BCF_HT_CHAR 4
+#define BCF_HT_INT64 5
+#define BCF_HT_VOID 6
 
 #define BCF_VL_FIXED 0 // variable length
 #define BCF_VL_VAR   1
 #define BCF_VL_A     2
 #define BCF_VL_G     3
 #define BCF_VL_R     4
+#define BCF_VL_P     5 //ploidy
 
 /* === Dictionary ===
 
@@ -134,7 +138,9 @@ extern uint8_t bcf_type_shift[];
 #define VCF_SNP   1
 #define VCF_MNP   2
 #define VCF_INDEL 4
-#define VCF_OTHER 8
+#define VCF_NON_REF 8
+#define VCF_SPANNING_DELETION 16
+#define VCF_OTHER 32
 
 typedef struct {
     int type, n;    // variant type and the number of bases affected, negative for deletions
@@ -204,6 +210,7 @@ typedef struct {
     int32_t pos;  // POS
     int32_t rlen; // length of REF
     float qual;   // QUAL
+    int32_t m_end_point; //END - must be after QUAL due to a memcpy() in vcf.c
     uint32_t n_info:16, n_allele:16;
     uint32_t n_fmt:8, n_sample:24;
     kstring_t shared, indiv;
@@ -562,6 +569,12 @@ typedef struct {
     int bcf_update_info(const bcf_hdr_t *hdr, bcf1_t *line, const char *key, const void *values, int n, int type);
 
     /*
+     * bcf_set_end_point_from_info() - sets m_end_point in the line struct
+     * Reads the END INFO field (if present) and sets the value of m_end_point
+     */
+    void bcf_set_end_point_from_info(const bcf_hdr_t* hdr, bcf1_t* line);
+
+    /*
      *  bcf_update_format_*() - functions for updating FORMAT fields
      *  @values:    pointer to the array of values, the same number of elements
      *              is expected for each sample. Missing values must be padded
@@ -724,6 +737,7 @@ typedef struct {
     #define bcf_hdr_id2coltype(hdr,type,int_id) ((hdr)->id[BCF_DT_ID][int_id].val->info[type] & 0xf)
     #define bcf_hdr_idinfo_exists(hdr,type,int_id)  ((int_id<0 || bcf_hdr_id2coltype(hdr,type,int_id)==0xf) ? 0 : 1)
     #define bcf_hdr_id2hrec(hdr,dict_type,col_type,int_id)    ((hdr)->id[(dict_type)==BCF_DT_CTG?BCF_DT_CTG:BCF_DT_ID][int_id].val->hrec[(dict_type)==BCF_DT_CTG?0:(col_type)])
+    uint64_t bcf_hdr_id2contig_length(const bcf_hdr_t* hdr, const int id);
 
     void bcf_fmt_array(kstring_t *s, int n, int type, void *data);
     uint8_t *bcf_fmt_sized_array(kstring_t *s, uint8_t *ptr);

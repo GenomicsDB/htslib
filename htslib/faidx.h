@@ -108,6 +108,12 @@ typedef struct __faidx_t faidx_t;
     char *faidx_fetch_seq(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, int *len);
 
     /*!
+     * @abstract Same as faidx_fetch_seq, except that the buffer to hold values is assumed to be allocated and sized correctly
+     * by the caller
+     */
+    void faidx_fetch_seq_into_buffer(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, char* seq, int *len);
+
+    /*!
       @abstract    Query if sequence is present
       @param  fai  Pointer to the faidx_t struct
       @param  seq  Sequence name
