@@ -29,8 +29,8 @@ RANLIB = ranlib
 CPPFLAGS =
 # TODO: probably update cram code to make it compile cleanly with -Wc++-compat
 ifdef DEBUG
-  CFLAGS = -DDEBUG -g -gdwarf-2 -g3
-  LDFLAGS  = -g -gdwarf-2 -g3
+  CFLAGS = -DDEBUG -g3 -gdwarf-3
+  LDFLAGS  = -g3 -gdwarf-3
 else
   CFLAGS = -O3
   LDFLAGS  =
