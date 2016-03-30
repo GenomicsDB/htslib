@@ -886,11 +886,31 @@ static bcf_sr_regions_t *_regions_init_string(const char *str)
     kstring_t tmp = {0,0,0};
     const char *sp = str, *ep = str;
     int from, to;
+    unsigned char inside_quotes = 0;
     while ( 1 )
     {
-        while ( *ep && *ep!=',' && *ep!=':' ) ep++;
+        //A quote is seen, flip flag inside_quotes
+        if(*ep == '"')
+        {
+            inside_quotes = 1 ^ inside_quotes;
+            sp = ++ep;
+        }
+        while ( *ep && ((inside_quotes && *ep!='"') || (!inside_quotes && *ep!=',' && *ep!=':')) ) ep++;
         tmp.l = 0;
         kputsn(sp,ep-sp,&tmp);
+        if(inside_quotes)
+        {
+            if(*ep == '"')
+            {
+                inside_quotes = 0;
+                ++ep;
+            }
+            else
+            {
+                fprintf(stderr,"[%s:%d %s] Could not parse the region(s): %s - terminating \" missing\n", __FILE__,__LINE__,__FUNCTION__,str);
+                free(reg); free(tmp.s); return NULL;
+            }
+        }
         if ( *ep==':' )
         {
             sp = ep+1;
