@@ -1,7 +1,8 @@
 /*  hts.h -- format-neutral I/O, indexing, and iterator API functions.
 
-    Copyright (C) 2012-2015 Genome Research Ltd.
-    Copyright (C) 2012 Broad Institute.
+    Copyright (C) 2012-2016 Genome Research Ltd.
+    Copyright (C) 2010, 2012 Broad Institute.
+    Portions copyright (C) 2003-2006, 2008-2010 by Heng Li <lh3@live.co.uk>
 
     Author: Heng Li <lh3@sanger.ac.uk>
 
@@ -28,6 +29,8 @@ DEALINGS IN THE SOFTWARE.  */
 
 #include <stddef.h>
 #include <stdint.h>
+
+#include "hts_defs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -388,6 +391,19 @@ int hts_set_threads(htsFile *fp, int n);
 */
 int hts_set_fai_filename(htsFile *fp, const char *fn_aux);
 
+
+/*!
+  @abstract  Determine whether a given htsFile contains a valid EOF block
+  @return    3 for a non-EOF checkable filetype;
+             2 for an unseekable file type where EOF cannot be checked;
+             1 for a valid EOF block;
+             0 for if the EOF marker is absent when it should be present;
+            -1 (with errno set) on failure
+  @discussion
+      Check if the BGZF end-of-file (EOF) marker is present
+*/
+int hts_check_EOF(htsFile *fp);
+
 /************
  * Indexing *
  ************/
@@ -448,7 +464,7 @@ typedef struct {
     @param fmt  One of the HTS_FMT_* index formats
     @return  0 if successful, or negative if an error occurred.
 */
-int hts_idx_save(const hts_idx_t *idx, const char *fn, int fmt);
+int hts_idx_save(const hts_idx_t *idx, const char *fn, int fmt) HTS_RESULT_USED;
 
 /// Save an index to a specific file
 /** @param idx    Index to be written
@@ -457,7 +473,7 @@ int hts_idx_save(const hts_idx_t *idx, const char *fn, int fmt);
     @param fmt    One of the HTS_FMT_* index formats
     @return  0 if successful, or negative if an error occurred.
 */
-int hts_idx_save_as(const hts_idx_t *idx, const char *fn, const char *fnidx, int fmt);
+int hts_idx_save_as(const hts_idx_t *idx, const char *fn, const char *fnidx, int fmt) HTS_RESULT_USED;
 
 /// Load an index file
 /** @param fn   BAM/BCF/etc filename, to which .bai/.csi/etc will be added or
@@ -514,7 +530,7 @@ const char *hts_parse_reg(const char *str, int *beg, int *end);
     typedef hts_itr_t *hts_itr_query_func(const hts_idx_t *idx, int tid, int beg, int end, hts_readrec_func *readrec);
 
     hts_itr_t *hts_itr_querys(const hts_idx_t *idx, const char *reg, hts_name2id_f getid, void *hdr, hts_itr_query_func *itr_query, hts_readrec_func *readrec);
-    int hts_itr_next(BGZF *fp, hts_itr_t *iter, void *r, void *data);
+    int hts_itr_next(BGZF *fp, hts_itr_t *iter, void *r, void *data) HTS_RESULT_USED;
     const char **hts_idx_seqnames(const hts_idx_t *idx, int *n, hts_id2name_f getid, void *hdr); // free only the array, not the values
 
     /**
@@ -530,6 +546,37 @@ const char *hts_parse_reg(const char *str, int *beg, int *end);
     #define FT_BCF_GZ (FT_GZ|FT_BCF)
     #define FT_STDIN  (1<<3)
     int hts_file_type(const char *fname);
+
+
+/***************************
+ * Revised MAQ error model *
+ ***************************/
+
+struct errmod_t;
+typedef struct errmod_t errmod_t;
+
+errmod_t *errmod_init(double depcorr);
+void errmod_destroy(errmod_t *em);
+
+/*
+    n: number of bases
+    m: maximum base
+    bases[i]: qual:6, strand:1, base:4
+    q[i*m+j]: phred-scaled likelihood of (i,j)
+ */
+int errmod_cal(const errmod_t *em, int n, int m, uint16_t *bases, float *q);
+
+
+/*****************************************
+ * Probabilistic banded glocal alignment *
+ *****************************************/
+
+typedef struct probaln_par_t {
+    float d, e;
+    int bw;
+} probaln_par_t;
+
+int probaln_glocal(const uint8_t *ref, int l_ref, const uint8_t *query, int l_query, const uint8_t *iqual, const probaln_par_t *c, int *state, uint8_t *q);
 
 
     /**********************

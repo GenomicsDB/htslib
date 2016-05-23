@@ -1,6 +1,6 @@
 /*  faidx.c -- FASTA random access.
 
-    Copyright (C) 2008, 2009, 2013-2015 Genome Research Ltd.
+    Copyright (C) 2008, 2009, 2013-2016 Genome Research Ltd.
     Portions copyright (C) 2011 Broad Institute.
 
     Author: Heng Li <lh3@sanger.ac.uk>
@@ -30,12 +30,14 @@ DEALINGS IN THE SOFTWARE.  */
 #include <stdlib.h>
 #include <stdio.h>
 #include <inttypes.h>
+#include <errno.h>
 
 #include "htslib/bgzf.h"
 #include "htslib/faidx.h"
 #include "htslib/hfile.h"
 #include "htslib/khash.h"
 #include "htslib/kstring.h"
+#include "hts_internal.h"
 
 typedef struct {
     int32_t line_len, line_blen;
@@ -55,7 +57,7 @@ struct __faidx_t {
 #define kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
 #endif
 
-static inline int fai_insert_index(faidx_t *idx, const char *name, int len, int line_len, int line_blen, uint64_t offset)
+static inline int fai_insert_index(faidx_t *idx, const char *name, int64_t len, int line_len, int line_blen, uint64_t offset)
 {
     if (!name) {
         fprintf(stderr, "[fai_build_core] malformed line\n");
@@ -186,7 +188,7 @@ void fai_save(const faidx_t *fai, FILE *fp)
     }
 }
 
-faidx_t *fai_read(FILE *fp)
+static faidx_t *fai_read(FILE *fp, const char *fname)
 {
     faidx_t *fai;
     char *buf, *p;
@@ -199,8 +201,8 @@ faidx_t *fai_read(FILE *fp)
     fai = (faidx_t*)calloc(1, sizeof(faidx_t));
     fai->hash = kh_init(s);
     buf = (char*)calloc(0x10000, 1);
-    while (!feof(fp) && fgets(buf, 0x10000, fp)) {
-        for (p = buf; *p && isgraph(*p); ++p);
+    while (fgets(buf, 0x10000, fp)) {
+        for (p = buf; *p && isgraph_c(*p); ++p);
         *p = 0; ++p;
 #ifdef _WIN32
         sscanf(p, "%d%ld%d%d", &len, &offset, &line_blen, &line_len);
@@ -213,6 +215,11 @@ faidx_t *fai_read(FILE *fp)
         }
     }
     free(buf);
+    if (ferror(fp)) {
+        fprintf(stderr, "[fai_load] error while reading \"%s\": %s\n", fname, strerror(errno));
+        fai_destroy(fai);
+        return NULL;
+    }
     return fai;
 }
 
@@ -249,8 +256,18 @@ int fai_build(const char *fn)
         free(str);
         return -1;
     }
-    if ( bgzf->is_compressed ) bgzf_index_dump(bgzf, fn, ".gzi");
-    bgzf_close(bgzf);
+    if ( bgzf->is_compressed ) {
+        if (bgzf_index_dump(bgzf, fn, ".gzi") < 0) {
+            fprintf(stderr, "[fai_build] fail to make bgzf index %s.gzi\n", fn);
+            fai_destroy(fai); free(str);
+            return -1;
+        }
+    }
+    if (bgzf_close(bgzf) < 0) {
+        fprintf(stderr, "[fai_build] Error on closing %s\n", fn);
+        fai_destroy(fai); free(str);
+        return -1;
+    }
     fp = fopen(str, "wb");
     if ( !fp ) {
         fprintf(stderr, "[fai_build] fail to write FASTA index %s\n",str);
@@ -327,20 +344,26 @@ faidx_t *fai_load(const char *fn)
 
     if (fp == 0) {
         fprintf(stderr, "[fai_load] build FASTA index.\n");
-        fai_build(fn);
+        if (fai_build(fn) < 0) {
+            free(str);
+            return 0;
+        }
         fp = fopen(str, "rb");
         if (fp == 0) {
-            fprintf(stderr, "[fai_load] fail to open FASTA index.\n");
+            fprintf(stderr, "[fai_load] failed to open FASTA index: %s\n", strerror(errno));
             free(str);
             return 0;
         }
     }
 
-    fai = fai_read(fp);
+    fai = fai_read(fp, str);
     fclose(fp);
+    free(str);
+    if (fai == NULL) {
+        return NULL;
+    }
 
     fai->bgzf = bgzf_open(fn, "rb");
-    free(str);
     if (fai->bgzf == 0) {
         fprintf(stderr, "[fai_load] fail to open FASTA file.\n");
         return 0;
@@ -372,7 +395,7 @@ char *fai_fetch(const faidx_t *fai, const char *str, int *len)
     s = (char*)malloc(l+1);
     // remove space
     for (i = k = 0; i < l; ++i)
-        if (!isspace(str[i])) s[k++] = str[i];
+        if (!isspace_c(str[i])) s[k++] = str[i];
     s[k] = 0; l = k;
     // determine the sequence name
     for (i = l - 1; i >= 0; --i) if (s[i] == ':') break; // look for colon from the end
@@ -381,7 +404,7 @@ char *fai_fetch(const faidx_t *fai, const char *str, int *len)
         int n_hyphen = 0;
         for (i = name_end + 1; i < l; ++i) {
             if (s[i] == '-') ++n_hyphen;
-            else if (!isdigit(s[i]) && s[i] != ',') break;
+            else if (!isdigit_c(s[i]) && s[i] != ',') break;
         }
         if (i < l || n_hyphen > 1) name_end = l; // malformated region string; then take str as the name
         s[name_end] = 0;

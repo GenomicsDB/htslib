@@ -193,6 +193,9 @@ typedef struct {
 #define BCF_ERR_TAG_UNDEF 2
 #define BCF_ERR_NCOLS     4
 #define BCF_ERR_LIMITS    8
+#define BCF_ERR_CHAR     16
+#define BCF_ERR_CTG_INVALID   32
+#define BCF_ERR_TAG_INVALID   64
 
 /*
     The bcf1_t structure corresponds to one VCF/BCF line. Reading from VCF file
@@ -443,11 +446,20 @@ typedef struct {
     /** Read VCF header from a file and update the header */
     int bcf_hdr_set(bcf_hdr_t *hdr, const char *fname);
 
+    /// Appends formatted header text to _str_.
+    /** If _is_bcf_ is zero, `IDX` fields are discarded.
+     *  @return 0 if successful, or negative if an error occurred
+     *  @since 1.4
+     */
+    int bcf_hdr_format(const bcf_hdr_t *hdr, int is_bcf, kstring_t *str);
+
     /** Returns formatted header (newly allocated string) and its length,
      *  excluding the terminating \0. If is_bcf parameter is unset, IDX
      *  fields are discarded.
+     *  @deprecated Use bcf_hdr_format() instead as it can handle huge headers.
      */
-    char *bcf_hdr_fmt_text(const bcf_hdr_t *hdr, int is_bcf, int *len);
+    char *bcf_hdr_fmt_text(const bcf_hdr_t *hdr, int is_bcf, int *len)
+        HTS_DEPRECATED("use bcf_hdr_format() instead");
 
     /** Append new VCF header line, returns 0 on success */
     int bcf_hdr_append(bcf_hdr_t *h, const char *line);
@@ -852,6 +864,7 @@ static inline void bcf_format_gt(bcf_fmt_t *fmt, int isample, kstring_t *str)
         case BCF_BT_INT8:  BRANCH(int8_t,  bcf_int8_missing, bcf_int8_vector_end); break;
         case BCF_BT_INT16: BRANCH(int16_t, bcf_int16_missing, bcf_int16_vector_end); break;
         case BCF_BT_INT32: BRANCH(int32_t, bcf_int32_missing, bcf_int32_vector_end); break;
+        case BCF_BT_NULL:  kputc('.', str); break;
         default: fprintf(stderr,"FIXME: type %d in bcf_format_gt?\n", fmt->type); abort(); break;
     }
     #undef BRANCH
