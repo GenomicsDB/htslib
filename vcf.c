@@ -895,11 +895,13 @@ size_t bcf_hdr_serialize(bcf_hdr_t* h, uint8_t* buffer, size_t offset, const siz
 {
     if ( h->dirty ) bcf_hdr_sync(h);
 
-    int hlen = 0;
-    char *htxt = bcf_hdr_fmt_text(h, 1, &hlen);
+    kstring_t htxt = {0,0,0};
+    bcf_hdr_format(h, is_bcf, &htxt);
+    uint32_t hlen = htxt.l;
     if(is_bcf)
     {
-        hlen++; // include the \0 byte
+        kputc('\0', &htxt); // include the \0 byte
+        ++hlen;
 
         if((offset+5+sizeof(int)+hlen) <= capacity)
         {
@@ -907,7 +909,7 @@ size_t bcf_hdr_serialize(bcf_hdr_t* h, uint8_t* buffer, size_t offset, const siz
             offset += 5;
             memcpy(buffer+offset, &hlen, sizeof(int));
             offset += sizeof(int);
-            memcpy(buffer+offset, htxt, hlen);
+            memcpy(buffer+offset, htxt.s, hlen);
             offset += hlen;
         }
     }
@@ -915,11 +917,11 @@ size_t bcf_hdr_serialize(bcf_hdr_t* h, uint8_t* buffer, size_t offset, const siz
     {
         if(offset+hlen <= capacity)
         {
-            memcpy(buffer+offset, htxt, hlen);
+            memcpy(buffer+offset, htxt.s, hlen);
             offset += hlen;
         }
     }
-    free(htxt);
+    free(htxt.s);
     return offset;
 }
 
