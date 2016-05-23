@@ -844,6 +844,38 @@ int bcf_hdr_write(htsFile *hfp, bcf_hdr_t *h)
     return 0;
 }
 
+size_t bcf_hdr_serialize(bcf_hdr_t* h, uint8_t* buffer, size_t offset, const size_t capacity, const uint8_t is_bcf)
+{
+    if ( h->dirty ) bcf_hdr_sync(h);
+
+    int hlen = 0;
+    char *htxt = bcf_hdr_fmt_text(h, 1, &hlen);
+    if(is_bcf)
+    {
+        hlen++; // include the \0 byte
+
+        if((offset+5+sizeof(int)+hlen) <= capacity)
+        {
+            memcpy(buffer+offset, "BCF\2\2", 5);
+            offset += 5;
+            memcpy(buffer+offset, &hlen, sizeof(int));
+            offset += sizeof(int);
+            memcpy(buffer+offset, htxt, hlen);
+            offset += hlen;
+        }
+    }
+    else
+    {
+        if(offset+hlen <= capacity)
+        {
+            memcpy(buffer+offset, htxt, hlen);
+            offset += hlen;
+        }
+    }
+    free(htxt);
+    return offset;
+}
+
 /********************
  *** BCF site I/O ***
  ********************/
@@ -1240,6 +1272,41 @@ int bcf_write(htsFile *hfp, bcf_hdr_t *h, bcf1_t *v)
     if ( bgzf_write(fp, v->shared.s, v->shared.l) != v->shared.l ) return -1;
     if ( bgzf_write(fp, v->indiv.s, v->indiv.l) != v->indiv.l ) return -1;
     return 0;
+}
+
+size_t bcf_serialize(bcf1_t* v, uint8_t* buffer, size_t offset, const size_t capacity, const uint8_t is_bcf, const bcf_hdr_t* hdr, kstring_t* tmp)
+{
+    bcf1_sync(v);   // check if the BCF record was modified
+    if(is_bcf)
+    {
+        if((offset+8*sizeof(int)+v->shared.l+v->indiv.l) <= capacity)
+        {
+            //First 8 integers represent various lengths
+            uint32_t* x = (uint32_t*)(buffer+offset);
+            x[0] = v->shared.l + 24; // to include six 32-bit integers
+            x[1] = v->indiv.l;
+            memcpy(x + 2, v, 16);
+            x[6] = (uint32_t)v->n_allele<<16 | v->n_info;
+            x[7] = (uint32_t)v->n_fmt<<24 | v->n_sample;
+            offset += 8*sizeof(int);
+            memcpy(buffer+offset, v->shared.s, v->shared.l);
+            offset += v->shared.l;
+            memcpy(buffer+offset, v->indiv.s, v->indiv.l);
+            offset += v->indiv.l;
+        }
+    }
+    else
+    {
+        tmp->l = 0;
+        int status = vcf_format(hdr, v, tmp);
+        assert(status == 0);
+        if((offset+tmp->l) <= capacity)
+        {
+            memcpy(buffer+offset, tmp->s, tmp->l);
+            offset += tmp->l;
+        }
+    }
+    return offset;
 }
 
 /**********************

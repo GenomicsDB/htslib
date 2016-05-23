@@ -320,6 +320,14 @@ typedef struct {
     /** Writes VCF or BCF header */
     int bcf_hdr_write(htsFile *fp, bcf_hdr_t *h);
 
+    /*
+     * Serialize BCF header into buffer
+     *
+     * Returns new offset value in buffer if the new data fits within the buffer capacity,
+     * else returns the same offset value without modifying the buffer
+     */
+    size_t bcf_hdr_serialize(bcf_hdr_t* h, uint8_t* buffer, size_t offset, const size_t capacity, const uint8_t is_bcf);
+
     /**
      * Parse VCF line contained in kstring and populate the bcf1_t struct
      * The line must not end with \n or \r characters.
@@ -328,6 +336,16 @@ typedef struct {
 
     /** The opposite of vcf_parse. It should rarely be called directly, see vcf_write */
     int vcf_format(const bcf_hdr_t *h, const bcf1_t *v, kstring_t *s);
+
+    /*
+     * Same as vcf_format, but for bcfs
+     *
+     * Returns new offset value in buffer if the new data fits within the buffer capacity,
+     * else returns the same offset value without modifying the buffer
+     *
+     * If vcf, then the hdr and tmp pointers must be valid. For bcfs, they might be null
+     */
+    size_t bcf_serialize(bcf1_t* v, uint8_t* buffer, size_t offset, const size_t capacity, const uint8_t is_bcf, const bcf_hdr_t* hdr, kstring_t* tmp);
 
     /**
      *  bcf_read() - read next VCF or BCF record
