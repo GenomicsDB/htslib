@@ -38,8 +38,8 @@ endif
 ifdef PROFILE
   CFLAGS += -pg
 endif
-CFLAGS += -Wall
-EXTRA_CFLAGS_PIC = -fpic
+CFLAGS += -Wall -fPIC
+EXTRA_CFLAGS_PIC = 
 LIBS     =
 
 # For now these don't work too well as samtools also needs to know to
