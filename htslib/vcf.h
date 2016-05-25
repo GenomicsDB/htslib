@@ -329,7 +329,7 @@ typedef struct {
      * Returns new offset value in buffer if the new data fits within the buffer capacity,
      * else returns the same offset value without modifying the buffer
      */
-    size_t bcf_hdr_serialize(bcf_hdr_t* h, uint8_t* buffer, size_t offset, const size_t capacity, const uint8_t is_bcf);
+    size_t bcf_hdr_serialize(bcf_hdr_t* h, uint8_t* buffer, size_t offset, const size_t capacity, const uint8_t is_bcf, const uint8_t keep_idx_fields);
 
     /**
      * Parse VCF line contained in kstring and populate the bcf1_t struct

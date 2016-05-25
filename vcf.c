@@ -891,12 +891,12 @@ int bcf_hdr_write(htsFile *hfp, bcf_hdr_t *h)
     return 0;
 }
 
-size_t bcf_hdr_serialize(bcf_hdr_t* h, uint8_t* buffer, size_t offset, const size_t capacity, const uint8_t is_bcf)
+size_t bcf_hdr_serialize(bcf_hdr_t* h, uint8_t* buffer, size_t offset, const size_t capacity, const uint8_t is_bcf, const uint8_t keep_idx_fields)
 {
     if ( h->dirty ) bcf_hdr_sync(h);
 
     kstring_t htxt = {0,0,0};
-    bcf_hdr_format(h, is_bcf, &htxt);
+    bcf_hdr_format(h, (is_bcf & keep_idx_fields), &htxt);
     uint32_t hlen = htxt.l;
     if(is_bcf)
     {
