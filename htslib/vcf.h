@@ -148,9 +148,11 @@ typedef struct {
 
 typedef struct {
     int id;             // id: numeric tag id, the corresponding string is bcf_hdr_t::id[BCF_DT_ID][$id].key
-    int n, size, type;  // n: number of values per-sample; size: number of bytes per-sample; type: one of BCF_BT_* types
+    int n;
+    size_t size;
+    int type;  // n: number of values per-sample; size: number of bytes per-sample; type: one of BCF_BT_* types
     uint8_t *p;         // same as vptr and vptr_* in bcf_info_t below
-    uint32_t p_len;
+    size_t p_len;
     uint32_t p_off:31, p_free:1;
 } bcf_fmt_t;
 

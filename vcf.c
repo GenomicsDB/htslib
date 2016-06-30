@@ -3150,10 +3150,10 @@ int bcf_update_format(const bcf_hdr_t *hdr, bcf1_t *line, const char *key, const
     else
     {
         // The tag is already present, check if it is big enough to accomodate the new block
-        if ( str.l <= fmt->p_len + fmt->p_off )
+        if ( str.l <= fmt->p_len + (size_t)(fmt->p_off) )
         {
             // good, the block is big enough
-            if ( str.l != fmt->p_len + fmt->p_off ) line->d.indiv_dirty = 1;
+            if ( str.l != fmt->p_len + (size_t)(fmt->p_off) ) line->d.indiv_dirty = 1;
             uint8_t *ptr = fmt->p - fmt->p_off;
             memcpy(ptr, str.s, str.l);
             free(str.s);

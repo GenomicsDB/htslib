@@ -129,7 +129,7 @@ static inline char *ks_release(kstring_t *s)
 	return ss;
 }
 
-static inline int kputsn(const char *p, int l, kstring_t *s)
+static inline int kputsn(const char *p, const size_t l, kstring_t *s)
 {
 	if (s->l + l + 1 >= s->m) {
 		char *tmp;
@@ -182,7 +182,7 @@ static inline int kputc_(int c, kstring_t *s)
 	return 1;
 }
 
-static inline int kputsn_(const void *p, int l, kstring_t *s)
+static inline int kputsn_(const void *p, const size_t l, kstring_t *s)
 {
 	if (s->l + l > s->m) {
 		char *tmp;
