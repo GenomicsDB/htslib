@@ -349,6 +349,17 @@ typedef struct {
      * If vcf, then the hdr and tmp pointers must be valid. For bcfs, they might be null
      */
     size_t bcf_serialize(bcf1_t* v, uint8_t* buffer, size_t offset, const size_t capacity, const uint8_t is_bcf, const bcf_hdr_t* hdr, kstring_t* tmp);
+    /*
+     * Same as vcf_parse, but for bcfs
+     *
+     * Returns new offset value in buffer if a full vcf record is read,
+     * else returns the same offset value
+     *
+     * If vcf, then the hdr and tmp pointers must be valid. For bcfs, they might be null
+     *
+     * Note that vcf parsing modifies the buffer (tokenize function)
+     */
+    size_t bcf_deserialize(bcf1_t* v, uint8_t* buffer, const size_t offset, const size_t capacity, const uint8_t is_bcf, const bcf_hdr_t* hdr);
 
     /**
      *  bcf_read() - read next VCF or BCF record

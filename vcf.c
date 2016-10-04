@@ -1008,6 +1008,55 @@ static inline int bcf_read1_core(BGZF *fp, bcf1_t *v)
     return 0;
 }
 
+size_t bcf_deserialize(bcf1_t* v, uint8_t* buffer, const size_t offset, const size_t capacity, const uint8_t is_bcf, const bcf_hdr_t* hdr)
+{
+    if(is_bcf)
+    {
+        bcf_clear(v);
+        size_t curr_offset = offset;
+        if(curr_offset+8*sizeof(uint32_t) >= capacity)
+            return offset;
+        uint32_t* x = (uint32_t*)(buffer+curr_offset);
+        size_t shared_length = x[0]-6*sizeof(int);
+        size_t indiv_length = x[1];
+        if(curr_offset+8*sizeof(uint32_t)+shared_length+indiv_length >= capacity)
+            return offset;
+        ks_resize(&v->shared, shared_length);
+        ks_resize(&v->indiv, indiv_length);
+        memcpy(v, x + 2, 4*sizeof(int));
+        v->n_allele = x[6]>>16; v->n_info = x[6]&0xffff;
+        v->n_fmt = x[7]>>24; v->n_sample = x[7]&0xffffff;
+        v->shared.l = shared_length, v->indiv.l = indiv_length;
+        // silent fix of broken BCFs produced by earlier versions of bcf_subset, prior to and including bd6ed8b4
+        if ( (!v->indiv.l || !v->n_sample) && v->n_fmt ) v->n_fmt = 0;
+        curr_offset += 8*sizeof(uint32_t);
+
+        memcpy(v->shared.s, buffer+curr_offset, shared_length);
+        curr_offset += shared_length;
+
+        memcpy(v->indiv.s, buffer+curr_offset, indiv_length);
+        curr_offset += indiv_length;
+        return curr_offset;
+    }
+    else
+    {
+        kstring_t tmp;
+        assert(offset < capacity);
+        tmp.s = (char*)(buffer+offset);
+        size_t max_length = capacity-offset;
+        char* line_end_ptr = (char*)(memchr(tmp.s, '\n', max_length));
+        size_t line_length = line_end_ptr ? ((size_t)(line_end_ptr - tmp.s)) : max_length;
+        tmp.l = line_length;
+        tmp.m = max_length;
+        int status = vcf_parse(&tmp, hdr, v);
+        //vcf parsed succesfully
+        if(status == 0)
+            return offset + line_length + (line_end_ptr ? 1u : 0u); //for the \n character
+        else
+            return offset;
+    }
+}
+
 #define bit_array_size(n) ((n)/8+1)
 #define bit_array_set(a,i)   ((a)[(i)/8] |=   1 << ((i)%8))
 #define bit_array_clear(a,i) ((a)[(i)/8] &= ~(1 << ((i)%8)))
