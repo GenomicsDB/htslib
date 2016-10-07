@@ -508,7 +508,7 @@ typedef struct {
 
 
     /** The following functions are for internal use and should rarely be called directly */
-    int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt);
+    int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length);
     int bcf_hdr_sync(bcf_hdr_t *h);
     bcf_hrec_t *bcf_hdr_parse_line(const bcf_hdr_t *h, const char *line, int *len);
     void bcf_hrec_format(const bcf_hrec_t *hrec, kstring_t *str);

@@ -119,7 +119,7 @@ int bcf_hdr_add_sample(bcf_hdr_t *h, const char *s)
     return 0;
 }
 
-int bcf_hdr_parse_sample_line(bcf_hdr_t *h, const char *str)
+int bcf_hdr_parse_sample_line(bcf_hdr_t *h, const char *str, size_t* length)
 {
     int ret = 0;
     int i = 0;
@@ -137,6 +137,7 @@ int bcf_hdr_parse_sample_line(bcf_hdr_t *h, const char *str)
         if (*q == 0 || *q == '\n') break;
         p = q + 1;
     }
+    *length = ((size_t)(q - str)) + 1ull;
     bcf_hdr_add_sample(h,NULL);
     return ret;
 }
@@ -618,7 +619,7 @@ void bcf_hdr_check_sanity(bcf_hdr_t *hdr)
     }
 }
 
-int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt)
+int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length)
 {
     int len, needs_sync = 0;
     char *p = htxt;
@@ -639,7 +640,9 @@ int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt)
         needs_sync += bcf_hdr_add_hrec(hdr, hrec);
         p += len;
     }
-    int ret = bcf_hdr_parse_sample_line(hdr,p);
+    size_t sample_line_length = 0;
+    int ret = bcf_hdr_parse_sample_line(hdr,p, &sample_line_length);
+    (*hdr_length) = ((size_t)(p - htxt)) + sample_line_length;
     bcf_hdr_sync(hdr);
     bcf_hdr_check_sanity(hdr);
     return ret;
@@ -859,7 +862,8 @@ bcf_hdr_t *bcf_hdr_read(htsFile *hfp)
     htxt = (char*)malloc(hlen);
     if (!htxt) goto fail;
     if (bgzf_read(fp, htxt, hlen) != hlen) goto fail;
-    bcf_hdr_parse(h, htxt);  // FIXME: Does this return anything meaningful?
+    size_t hdr_length = 0ull;
+    bcf_hdr_parse(h, htxt, &hdr_length);  // FIXME: Does this return anything meaningful?
     free(htxt);
     return h;
  fail:
@@ -1460,7 +1464,8 @@ bcf_hdr_t *vcf_hdr_read(htsFile *fp)
         fprintf(stderr,"[%s:%d %s] Could not read the header\n", __FILE__,__LINE__,__FUNCTION__);
         return NULL;
     }
-    bcf_hdr_parse(h, txt.s);
+    size_t hdr_length = 0ull;
+    bcf_hdr_parse(h, txt.s, &hdr_length);
 
     // check tabix index, are all contigs listed in the header? add the missing ones
     tbx_t *idx = tbx_index_load(fp->fn);
@@ -1500,7 +1505,8 @@ int bcf_hdr_set(bcf_hdr_t *hdr, const char *fname)
         if ( hrec ) bcf_hdr_add_hrec(hdr, hrec);
         free(lines[i]);
     }
-    bcf_hdr_parse_sample_line(hdr,lines[n-1]);
+    size_t sample_line_length = 0ull;
+    bcf_hdr_parse_sample_line(hdr,lines[n-1], &sample_line_length);
     free(lines[n-1]);
     free(lines);
     bcf_hdr_sync(hdr);
@@ -2559,7 +2565,8 @@ bcf_hdr_t *bcf_hdr_merge(bcf_hdr_t *dst, const bcf_hdr_t *src)
         dst = bcf_hdr_init("r");
         kstring_t htxt = {0,0,0};
         bcf_hdr_format(src, 0, &htxt);
-        bcf_hdr_parse(dst, htxt.s);
+        size_t hdr_length = 0ull;
+        bcf_hdr_parse(dst, htxt.s, &hdr_length);
         free(htxt.s);
         return dst;
     }
@@ -2748,7 +2755,8 @@ bcf_hdr_t *bcf_hdr_dup(const bcf_hdr_t *hdr)
     }
     kstring_t htxt = {0,0,0};
     bcf_hdr_format(hdr, 1, &htxt);
-    bcf_hdr_parse(hout, htxt.s);
+    size_t hdr_length = 0ull;
+    bcf_hdr_parse(hout, htxt.s, &hdr_length);
     free(htxt.s);
     return hout;
 }
@@ -2795,7 +2803,8 @@ bcf_hdr_t *bcf_hdr_subset(const bcf_hdr_t *h0, int n, char *const* samples, int 
     } else kputsn(htxt.s, htxt.l, &str);
     while (str.l && (!str.s[str.l-1] || str.s[str.l-1]=='\n') ) str.l--; // kill trailing zeros and newlines
     kputc('\n',&str);
-    bcf_hdr_parse(h, str.s);
+    size_t hdr_length = 0ull;
+    bcf_hdr_parse(h, str.s, &hdr_length);
     free(str.s);
     free(htxt.s);
     khash_str2int_destroy(names_hash);
