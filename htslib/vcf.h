@@ -85,6 +85,9 @@ extern "C" {
 #define BCF_DT_CTG      1
 #define BCF_DT_SAMPLE   2
 
+#define BCF_HEADER_MAGIC_STRING "BCF\2\2"
+#define BCF_HEADER_MAGIC_STRING_LENGTH 5
+
 // Complete textual representation of a header line
 typedef struct {
     int type;       // One of the BCF_HL_* type
@@ -330,6 +333,13 @@ typedef struct {
      * else returns the same offset value without modifying the buffer
      */
     size_t bcf_hdr_serialize(bcf_hdr_t* h, uint8_t* buffer, size_t offset, const size_t capacity, const uint8_t is_bcf, const uint8_t keep_idx_fields);
+    /*
+     * Deserialize header from buffer
+     *
+     * Returns new offset value if the header was completely read from the buffer
+     * else returns the same offset value without modifying the buffer
+     */
+    size_t bcf_hdr_deserialize(bcf_hdr_t* h, const uint8_t* buffer, const size_t offset, const size_t capacity, const uint8_t is_bcf);
 
     /**
      * Parse VCF line contained in kstring and populate the bcf1_t struct
@@ -508,8 +518,15 @@ typedef struct {
 
 
     /** The following functions are for internal use and should rarely be called directly */
+    /*
+     * Returns 0 if header was successfully parsed fully
+     * -1 otherwise
+     */
     int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length);
     int bcf_hdr_sync(bcf_hdr_t *h);
+    /*
+     * Sets *len = -1 if incorrectly formatted header line found
+     */
     bcf_hrec_t *bcf_hdr_parse_line(const bcf_hdr_t *h, const char *line, int *len);
     void bcf_hrec_format(const bcf_hrec_t *hrec, kstring_t *str);
     int bcf_hdr_add_hrec(bcf_hdr_t *hdr, bcf_hrec_t *hrec);

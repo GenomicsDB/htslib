@@ -297,7 +297,12 @@ bcf_hrec_t *bcf_hdr_parse_line(const bcf_hdr_t *h, const char *line, int *len)
     const char *q = p;
     while ( *q && *q!='=' ) q++;
     int n = q-p;
-    if ( *q!='=' || !n ) { *len = q-line+1; return NULL; } // wrong format
+    if ( *q!='=' || !n ) // wrong format
+    {
+        //*len = q-line+1;
+        *len = -1;
+        return NULL;
+    }
 
     bcf_hrec_t *hrec = (bcf_hrec_t*) calloc(1,sizeof(bcf_hrec_t));
     hrec->key = (char*) malloc(sizeof(char)*(n+1));
@@ -340,7 +345,8 @@ bcf_hrec_t *bcf_hdr_parse_line(const bcf_hdr_t *h, const char *line, int *len)
             kputsn(line,q-line,&tmp);
             fprintf(stderr,"Could not parse the header line: \"%s\"\n", tmp.s);
             free(tmp.s);
-            *len = q-line+1;
+            //*len = q-line+1;
+            *len = -1;
             bcf_hrec_destroy(hrec);
             return NULL;
         }
@@ -621,13 +627,17 @@ void bcf_hdr_check_sanity(bcf_hdr_t *hdr)
 
 int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length)
 {
-    int len, needs_sync = 0;
+    int len = 0, needs_sync = 0;
     char *p = htxt;
+    int return_val = 0;
 
     // Check sanity: "fileformat" string must come as first
     bcf_hrec_t *hrec = bcf_hdr_parse_line(hdr,p,&len);
     if ( !hrec || !hrec->key || strcasecmp(hrec->key,"fileformat") )
+    {
         fprintf(stderr, "[W::%s] The first line should be ##fileformat; is the VCF/BCF header broken?\n", __func__);
+        return_val = -1;
+    }
     needs_sync += bcf_hdr_add_hrec(hdr, hrec);
 
     // The filter PASS must appear first in the dictionary
@@ -637,15 +647,21 @@ int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length)
     // Parse the whole header
     while ( (hrec=bcf_hdr_parse_line(hdr,p,&len)) )
     {
+        if(len < 0)
+            return_val = -1;
         needs_sync += bcf_hdr_add_hrec(hdr, hrec);
         p += len;
     }
+    if(len < 0)
+        return_val = -1;
+    
     size_t sample_line_length = 0;
-    int ret = bcf_hdr_parse_sample_line(hdr,p, &sample_line_length);
+    if(return_val == 0)
+        return_val = bcf_hdr_parse_sample_line(hdr,p, &sample_line_length);
     (*hdr_length) = ((size_t)(p - htxt)) + sample_line_length;
     bcf_hdr_sync(hdr);
     bcf_hdr_check_sanity(hdr);
-    return ret;
+    return return_val;
 }
 
 int bcf_hdr_append(bcf_hdr_t *hdr, const char *line)
@@ -875,6 +891,32 @@ bcf_hdr_t *bcf_hdr_read(htsFile *hfp)
     return NULL;
 }
 
+size_t bcf_hdr_deserialize(bcf_hdr_t* h, const uint8_t* buffer, const size_t offset, const size_t capacity, const uint8_t is_bcf)
+{
+    size_t hdr_length = 0ull;
+    size_t curr_offset = offset;
+    if(is_bcf)
+    {
+        //magic string + hdr length
+        if(curr_offset+BCF_HEADER_MAGIC_STRING_LENGTH+sizeof(int) > capacity)
+            return offset;
+        const char* buffer_magic_string = (const char*)(buffer+curr_offset);
+        if(strncmp(buffer_magic_string, BCF_HEADER_MAGIC_STRING, BCF_HEADER_MAGIC_STRING_LENGTH) != 0)
+        {
+            fprintf(stderr,"[%s:%d %s] invalid BCF2 magic string: only BCFv2.2 is supported.\n", __FILE__,__LINE__,__FUNCTION__);
+            return offset;
+        }
+        curr_offset += BCF_HEADER_MAGIC_STRING_LENGTH;
+        //Header length
+        memcpy(&hdr_length, buffer+curr_offset, sizeof(int));
+        curr_offset += sizeof(int);
+        if(curr_offset+hdr_length > capacity)
+            return offset;
+    }
+    bcf_hdr_parse(h, (char*)(buffer+curr_offset), &hdr_length);
+    return curr_offset+hdr_length;
+}
+
 int bcf_hdr_write(htsFile *hfp, bcf_hdr_t *h)
 {
     if ( h->dirty ) bcf_hdr_sync(h);
@@ -1023,7 +1065,7 @@ size_t bcf_deserialize(bcf1_t* v, uint8_t* buffer, const size_t offset, const si
         uint32_t* x = (uint32_t*)(buffer+curr_offset);
         size_t shared_length = x[0]-6*sizeof(int);
         size_t indiv_length = x[1];
-        if(curr_offset+8*sizeof(uint32_t)+shared_length+indiv_length >= capacity)
+        if(curr_offset+8*sizeof(uint32_t)+shared_length+indiv_length > capacity)
             return offset;
         ks_resize(&v->shared, shared_length);
         ks_resize(&v->indiv, indiv_length);
