@@ -1090,8 +1090,14 @@ size_t bcf_deserialize(bcf1_t* v, uint8_t* buffer, const size_t offset, const si
         assert(offset < capacity);
         tmp.s = (char*)(buffer+offset);
         size_t max_length = capacity-offset;
+        size_t line_length = max_length;
+        //See if newline exists
         char* line_end_ptr = (char*)(memchr(tmp.s, '\n', max_length));
-        size_t line_length = line_end_ptr ? ((size_t)(line_end_ptr - tmp.s)) : max_length;
+        if(line_end_ptr)
+        {
+            line_length = ((size_t)(line_end_ptr - tmp.s));
+            *line_end_ptr = 0; //replace '\n' with null byte, vcf_parse doesn't like '\n'
+        }
         tmp.l = line_length;
         tmp.m = max_length;
         int status = vcf_parse(&tmp, hdr, v);
