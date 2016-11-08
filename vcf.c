@@ -901,9 +901,10 @@ size_t bcf_hdr_deserialize(bcf_hdr_t* h, const uint8_t* buffer, const size_t off
         if(curr_offset+BCF_HEADER_MAGIC_STRING_LENGTH+sizeof(int) > capacity)
             return offset;
         const char* buffer_magic_string = (const char*)(buffer+curr_offset);
-        if(strncmp(buffer_magic_string, BCF_HEADER_MAGIC_STRING, BCF_HEADER_MAGIC_STRING_LENGTH) != 0)
+        if(strncmp(buffer_magic_string, BCF_V_2_2_HEADER_MAGIC_STRING, BCF_HEADER_MAGIC_STRING_LENGTH) != 0
+                && strncmp(buffer_magic_string, BCF_V_2_1_HEADER_MAGIC_STRING, BCF_HEADER_MAGIC_STRING_LENGTH) != 0)
         {
-            fprintf(stderr,"[%s:%d %s] invalid BCF2 magic string: only BCFv2.2 is supported.\n", __FILE__,__LINE__,__FUNCTION__);
+            fprintf(stderr,"[%s:%d %s] invalid BCF2 magic string: only BCFv2.2 and BCFv2.1 are supported.\n", __FILE__,__LINE__,__FUNCTION__);
             return offset;
         }
         curr_offset += BCF_HEADER_MAGIC_STRING_LENGTH;

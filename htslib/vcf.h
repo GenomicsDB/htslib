@@ -85,7 +85,8 @@ extern "C" {
 #define BCF_DT_CTG      1
 #define BCF_DT_SAMPLE   2
 
-#define BCF_HEADER_MAGIC_STRING "BCF\2\2"
+#define BCF_V_2_1_HEADER_MAGIC_STRING "BCF\2\1"
+#define BCF_V_2_2_HEADER_MAGIC_STRING "BCF\2\2"
 #define BCF_HEADER_MAGIC_STRING_LENGTH 5
 
 // Complete textual representation of a header line
