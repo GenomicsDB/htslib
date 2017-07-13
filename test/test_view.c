@@ -29,10 +29,18 @@ DEALINGS IN THE SOFTWARE.  */
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <getopt.h>
 
 #include "cram/cram.h"
 
 #include "htslib/sam.h"
+
+enum test_op {
+    READ_COMPRESSED  = 1,
+    WRITE_COMPRESSED = 2,
+    READ_CRAM        = 4,
+    WRITE_CRAM       = 8
+};
 
 int main(int argc, char *argv[])
 {
@@ -49,30 +57,48 @@ int main(int argc, char *argv[])
     int nreads = 0;
     int extra_hdr_nuls = 0;
     int benchmark = 0;
+    int nthreads = 0; // shared pool
 
-    while ((c = getopt(argc, argv, "IbDCSl:t:i:o:N:BZ:")) >= 0) {
+    while ((c = getopt(argc, argv, "DSIt:i:bCl:o:N:BZ:@:")) >= 0) {
         switch (c) {
-        case 'S': flag |= 1; break;
-        case 'b': flag |= 2; break;
-        case 'D': flag |= 4; break;
-        case 'C': flag |= 8; break;
-        case 'B': benchmark = 1; break;
-        case 'l': clevel = atoi(optarg); flag |= 2; break;
-        case 't': fn_ref = optarg; break;
+        case 'D': flag |= READ_CRAM; break;
+        case 'S': flag |= READ_COMPRESSED; break;
         case 'I': ignore_sam_err = 1; break;
-        case 'i': if (hts_opt_add(&in_opts,  optarg)) return 1; break;
+        case 't': fn_ref = optarg; break;
+        case 'i': if (hts_opt_add(&in_opts, optarg)) return 1; break;
+        case 'b': flag |= WRITE_COMPRESSED; break;
+        case 'C': flag |= WRITE_CRAM; break;
+        case 'l': clevel = atoi(optarg); flag |= WRITE_COMPRESSED; break;
         case 'o': if (hts_opt_add(&out_opts, optarg)) return 1; break;
         case 'N': nreads = atoi(optarg); break;
+        case 'B': benchmark = 1; break;
         case 'Z': extra_hdr_nuls = atoi(optarg); break;
+        case '@': nthreads = atoi(optarg); break;
         }
     }
     if (argc == optind) {
-        fprintf(stderr, "Usage: samview [-bSCSIB] [-N num_reads] [-l level] [-o option=value] [-Z hdr_nuls] <in.bam>|<in.sam>|<in.cram> [region]\n");
+        fprintf(stderr, "Usage: test_view [-DSI] [-t fn_ref] [-i option=value] [-bC] [-l level] [-o option=value] [-N num_reads] [-B] [-Z hdr_nuls] [-@ num_threads] <in.bam>|<in.sam>|<in.cram> [region]\n");
+        fprintf(stderr, "\n");
+        fprintf(stderr, "-D: read CRAM format (mode 'c')\n");
+        fprintf(stderr, "-S: read compressed BCF, BAM, FAI (mode 'b')\n");
+        fprintf(stderr, "-I: ignore SAM parsing errors\n");
+        fprintf(stderr, "-t: fn_ref: load CRAM references from the specificed fasta file instead of @SQ headers when writing a CRAM file\n");
+        fprintf(stderr, "-i: option=value: set an option for CRAM input\n");
+        fprintf(stderr, "\n");
+        fprintf(stderr, "-b: write compressed BCF, BAM, FAI (mode 'b')\n");
+        fprintf(stderr, "-C: write CRAM format (mode 'c')\n");
+        fprintf(stderr, "-l 0-9: set zlib compression level\n");
+        fprintf(stderr, "-o option=value: set an option for CRAM output\n");
+        fprintf(stderr, "-N: num_reads: limit the output to the first num_reads reads\n");
+        fprintf(stderr, "\n");
+        fprintf(stderr, "-B: enable benchmarking\n");
+        fprintf(stderr, "-Z hdr_nuls: append specified number of null bytes to the SAM header\n");
+        fprintf(stderr, "-@ num_threads: use thread pool with specified number of threads\n");
         return 1;
     }
     strcpy(moder, "r");
-    if (flag&4) strcat(moder, "c");
-    else if ((flag&1) == 0) strcat(moder, "b");
+    if (flag & READ_CRAM) strcat(moder, "c");
+    else if ((flag & READ_COMPRESSED) == 0) strcat(moder, "b");
 
     in = sam_open(argv[optind], moder);
     if (in == NULL) {
@@ -100,8 +126,8 @@ int main(int argc, char *argv[])
 
     strcpy(modew, "w");
     if (clevel >= 0 && clevel <= 9) sprintf(modew + 1, "%d", clevel);
-    if (flag&8) strcat(modew, "c");
-    else if (flag&2) strcat(modew, "b");
+    if (flag & WRITE_CRAM) strcat(modew, "c");
+    else if (flag & WRITE_COMPRESSED) strcat(modew, "b");
     out = hts_open("-", modew);
     if (out == NULL) {
         fprintf(stderr, "Error opening standard output\n");
@@ -109,7 +135,7 @@ int main(int argc, char *argv[])
     }
 
     /* CRAM output */
-    if (flag & 8) {
+    if (flag & WRITE_CRAM) {
         int ret;
 
         // Parse input header and use for CRAM output
@@ -135,11 +161,24 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     hts_opt_free(out_opts);
 
+    // Create and share the thread pool
+    htsThreadPool p = {NULL, 0};
+    if (nthreads > 0) {
+        p.pool = hts_tpool_init(nthreads);
+        if (!p.pool) {
+            fprintf(stderr, "Error creating thread pool\n");
+            exit_code = 1;
+        } else {
+            hts_set_opt(in,  HTS_OPT_THREAD_POOL, &p);
+            hts_set_opt(out, HTS_OPT_THREAD_POOL, &p);
+        }
+    }
+
     if (!benchmark && sam_hdr_write(out, h) < 0) {
         fprintf(stderr, "Error writing output header.\n");
         exit_code = 1;
     }
-    if (optind + 1 < argc && !(flag&1)) { // BAM input and has a region
+    if (optind + 1 < argc && !(flag & READ_COMPRESSED)) { // BAM input and has a region
         int i;
         hts_idx_t *idx;
         if ((idx = sam_index_load(in, argv[optind])) == 0) {
@@ -193,6 +232,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Error closing input.\n");
         exit_code = 1;
     }
+
+    if (p.pool)
+        hts_tpool_destroy(p.pool);
 
     return exit_code;
 }
