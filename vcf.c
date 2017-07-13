@@ -698,14 +698,16 @@ int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length)
         }
     } while (!done);
 
-    if (done < 0) {
-        // No sample line is fatal.
-        hts_log_error("Could not parse the header, sample line not found");
-        return -1;
-    }
     size_t sample_line_length = 0;
-    if(return_val == 0)
-        return_val = bcf_hdr_parse_sample_line(hdr,p, &sample_line_length);
+    if (done < 0) {
+        // No sample line is non-fatal.
+        hts_log_warning("Could not parse the header, sample line not found");
+    }
+    else
+    {
+        if(return_val == 0)
+            return_val = bcf_hdr_parse_sample_line(hdr,p, &sample_line_length);
+    }
     (*hdr_length) = ((size_t)(p - htxt)) + sample_line_length;
     bcf_hdr_sync(hdr);
     bcf_hdr_check_sanity(hdr);
