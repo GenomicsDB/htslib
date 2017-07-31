@@ -55,7 +55,7 @@ int kputd(double d, kstring_t *s) {
 		if (ks_resize(s, s->l + 50) < 0)
 			return EOF;
 		// We let stdio handle the exponent cases
-		int s2 = sprintf(s->s + s->l, "%g", d);
+		int s2 = sprintf(s->s + s->l, "%#g", d);
 		len += s2;
 		s->l += s2;
 		return len;
@@ -114,7 +114,7 @@ int kputd(double d, kstring_t *s) {
 		}
 		xp[0] = '.';
 		cp[7] = 0; ep=cp+6;
-		if (cp[6] == '.') cp[6] = 0;
+                /*if (cp[6] == '.') cp[6] = 0;*/
 	}
 
 	// Cull trailing zeros
@@ -124,7 +124,11 @@ int kputd(double d, kstring_t *s) {
 	while (ep > cp) {
 		if (*ep == '.') {
 			if (z[-1] == '.')
-				z[-1] = 0;
+                        {
+                               /*z[-1] = 0;*/
+                               z[0] = '0';
+                               z[1] = 0;
+                        }
 			else
 				z[0] = 0;
 			break;
