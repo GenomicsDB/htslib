@@ -642,7 +642,8 @@ void bcf_hdr_check_sanity(bcf_hdr_t *hdr)
     }
 }
 
-int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length)
+int bcf_hdr_parse_required_sample_line(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length,
+        const uint8_t is_sample_line_required)
 {
     int len, needs_sync = 0, done = 0;
     char *p = htxt;
@@ -700,8 +701,12 @@ int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length)
 
     size_t sample_line_length = 0;
     if (done < 0) {
-        // No sample line is non-fatal.
-        hts_log_warning("Could not parse the header, sample line not found");
+        if(is_sample_line_required)
+        {
+            // No sample line is fatal.
+            hts_log_error("Could not parse the header, sample line not found");
+            return -1;
+        }
     }
     else
     {
@@ -712,6 +717,11 @@ int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length)
     bcf_hdr_sync(hdr);
     bcf_hdr_check_sanity(hdr);
     return return_val;
+}
+
+int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length)
+{
+    return bcf_hdr_parse_required_sample_line(hdr, htxt, hdr_length, 1);
 }
 
 int bcf_hdr_append(bcf_hdr_t *hdr, const char *line)
@@ -895,10 +905,10 @@ void bcf_hdr_destroy(bcf_hdr_t *h)
     free(h);
 }
 
-bcf_hdr_t *bcf_hdr_read(htsFile *hfp)
+bcf_hdr_t *bcf_hdr_read_required_sample_line(htsFile *hfp, const uint8_t is_sample_line_required)
 {
     if (hfp->format.format == vcf)
-        return vcf_hdr_read(hfp);
+        return vcf_hdr_read_required_sample_line(hfp, is_sample_line_required);
     if (hfp->format.format != bcf) {
         hts_log_error("Input is not detected as bcf or vcf format");
         return NULL;
@@ -940,7 +950,7 @@ bcf_hdr_t *bcf_hdr_read(htsFile *hfp)
     if (bgzf_read(fp, htxt, hlen) != hlen) goto fail;
     htxt[hlen] = '\0'; // Ensure htxt is terminated
     size_t hdr_length = 0ull;
-    bcf_hdr_parse(h, htxt, &hdr_length);  // FIXME: Does this return anything meaningful?
+    bcf_hdr_parse_required_sample_line(h, htxt, &hdr_length, is_sample_line_required);  // FIXME: Does this return anything meaningful?
     free(htxt);
     return h;
  fail:
@@ -948,6 +958,11 @@ bcf_hdr_t *bcf_hdr_read(htsFile *hfp)
     free(htxt);
     bcf_hdr_destroy(h);
     return NULL;
+}
+
+bcf_hdr_t *bcf_hdr_read(htsFile *hfp)
+{
+    return bcf_hdr_read_required_sample_line(hfp, 1);
 }
 
 size_t bcf_hdr_deserialize(bcf_hdr_t* h, const uint8_t* buffer, const size_t offset, const size_t capacity, const uint8_t is_bcf)
@@ -1706,7 +1721,7 @@ size_t bcf_serialize(bcf1_t* v, uint8_t* buffer, size_t offset, const size_t cap
  *** VCF header I/O ***
  **********************/
 
-bcf_hdr_t *vcf_hdr_read(htsFile *fp)
+bcf_hdr_t *vcf_hdr_read_required_sample_line(htsFile *fp, const uint8_t is_sample_line_required)
 {
     kstring_t txt, *s = &fp->line;
     int ret;
@@ -1753,7 +1768,7 @@ bcf_hdr_t *vcf_hdr_read(htsFile *fp)
         goto error;
     }
     size_t hdr_length = 0ull;
-    if ( bcf_hdr_parse(h, txt.s, &hdr_length) < 0 ) goto error;
+    if ( bcf_hdr_parse_required_sample_line(h, txt.s, &hdr_length, is_sample_line_required) < 0 ) goto error;
 
     // check tabix index, are all contigs listed in the header? add the missing ones
     tbx_t *idx = tbx_index_load(fp->fn);
@@ -1784,6 +1799,11 @@ bcf_hdr_t *vcf_hdr_read(htsFile *fp)
     free(txt.s);
     if (h) bcf_hdr_destroy(h);
     return NULL;
+}
+
+bcf_hdr_t *vcf_hdr_read(htsFile *fp)
+{
+    return vcf_hdr_read_required_sample_line(fp, 1);
 }
 
 int bcf_hdr_set(bcf_hdr_t *hdr, const char *fname)

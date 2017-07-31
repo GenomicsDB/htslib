@@ -300,6 +300,7 @@ typedef struct {
 
     /** Reads VCF or BCF header */
     bcf_hdr_t *bcf_hdr_read(htsFile *fp);
+    bcf_hdr_t *bcf_hdr_read_required_sample_line(htsFile *hfp, const uint8_t is_sample_line_required);
 
     /**
      *  bcf_hdr_set_samples() - for more efficient VCF parsing when only one/few samples are needed
@@ -422,6 +423,7 @@ typedef struct {
      *  transparently with both VCFs and BCFs.
      */
     bcf_hdr_t *vcf_hdr_read(htsFile *fp);
+    bcf_hdr_t *vcf_hdr_read_required_sample_line(htsFile *fp, const uint8_t is_sample_line_required);
     int vcf_hdr_write(htsFile *fp, const bcf_hdr_t *h);
     int vcf_read(htsFile *fp, const bcf_hdr_t *h, bcf1_t *v);
     int vcf_write(htsFile *fp, const bcf_hdr_t *h, bcf1_t *v);
@@ -527,6 +529,8 @@ typedef struct {
      * -1 otherwise
      */
     int bcf_hdr_parse(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length);
+    int bcf_hdr_parse_required_sample_line(bcf_hdr_t *hdr, char *htxt, size_t* hdr_length,
+        const uint8_t is_sample_line_required);
     int bcf_hdr_sync(bcf_hdr_t *h);
     /*
      * Sets *len = -1 if incorrectly formatted header line found
