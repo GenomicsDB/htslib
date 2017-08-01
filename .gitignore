@@ -51,3 +51,6 @@ lib*.so.*
 /test/*.tmp.*
 
 /TAGS
+
+aclocal.m4
+*.swp
