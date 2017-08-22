@@ -70,6 +70,7 @@ extern "C" {
 #define BCF_VL_G     3
 #define BCF_VL_R     4
 #define BCF_VL_P     5 //ploidy
+#define BCF_VL_Phased_Ploidy 6 //ploidy with phase
 
 /* === Dictionary ===
 
