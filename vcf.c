@@ -2688,7 +2688,7 @@ int vcf_format(const bcf_hdr_t *h, const bcf1_t *v, kstring_t *s)
     bcf_unpack((bcf1_t*)v, BCF_UN_ALL);
     kputs(h->id[BCF_DT_CTG][v->rid].key, s); // CHROM
     kputc('\t', s); kputw(v->pos + 1, s); // POS
-    kputc('\t', s); kputs(v->d.id ? v->d.id : ".", s); // ID
+    kputc('\t', s); kputs((v->d.id && v->d.id[0]) ? v->d.id : ".", s); // ID
     kputc('\t', s); // REF
     if (v->n_allele > 0) kputs(v->d.allele[0], s);
     else kputc('.', s);
