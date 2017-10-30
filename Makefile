@@ -25,6 +25,7 @@
 CC     = gcc
 AR     = ar
 RANLIB = ranlib
+SOURCE_DIR = .
 
 # Default libraries to link if configure is not used
 htslib_default_libs = -lz -lm -lbz2 -llzma
@@ -99,7 +100,7 @@ BUILT_THRASH_PROGRAMS = \
 all: lib-static lib-shared $(BUILT_PROGRAMS) plugins $(BUILT_TEST_PROGRAMS)
 
 HTSPREFIX =
-include htslib_vars.mk
+include $(SOURCE_DIR)/htslib_vars.mk
 
 
 PACKAGE_VERSION = 1.5
@@ -141,10 +142,10 @@ print-version:
 .SUFFIXES: .bundle .c .cygdll .dll .o .pico .so
 
 .c.o:
-	$(CC) $(CFLAGS) -I. $(CPPFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -I$(SOURCE_DIR) -I. $(CPPFLAGS) -c -o $@ $<
 
 .c.pico:
-	$(CC) $(CFLAGS) -I. $(CPPFLAGS) $(EXTRA_CFLAGS_PIC) -c -o $@ $<
+	$(CC) $(CFLAGS) -I$(SOURCE_DIR) -I. $(CPPFLAGS) $(EXTRA_CFLAGS_PIC) -c -o $@ $<
 
 
 LIBHTS_OBJS = \
