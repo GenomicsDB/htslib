@@ -58,11 +58,19 @@ extern "C" {
 
 #define BCF_HT_FLAG 0 // header type
 #define BCF_HT_INT  1
-#define BCF_HT_REAL 2
-#define BCF_HT_STR  3
-#define BCF_HT_CHAR 4
-#define BCF_HT_INT64 5
-#define BCF_HT_VOID 6
+#define BCF_HT_UINT  2
+#define BCF_HT_INT8  3
+#define BCF_HT_UINT8  4
+#define BCF_HT_INT16  5
+#define BCF_HT_UINT16  6
+#define BCF_HT_REAL 7
+#define BCF_HT_STR  8
+#define BCF_HT_CHAR 9
+#define BCF_HT_INT64 10
+#define BCF_HT_UINT64 11
+#define BCF_HT_VOID 12
+#define BCF_HT_DOUBLE 13
+#define BCF_NUM_HT_TYPES 14
 
 #define BCF_VL_FIXED 0 // variable length
 #define BCF_VL_VAR   1
