@@ -334,7 +334,8 @@ static void bcf_sr_destroy1(bcf_sr_t *reader)
     free(reader->fname);
     if ( reader->tbx_idx ) tbx_destroy(reader->tbx_idx);
     if ( reader->bcf_idx ) hts_idx_destroy(reader->bcf_idx);
-    bcf_hdr_destroy(reader->header);
+    if(reader->header)
+        bcf_hdr_destroy(reader->header);
     if(reader->file)
         hts_close(reader->file);
     if ( reader->itr ) tbx_itr_destroy(reader->itr);
