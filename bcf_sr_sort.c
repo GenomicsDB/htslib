@@ -615,11 +615,14 @@ int bcf_sr_sort_next(bcf_srs_t *readers, sr_sort_t *srt, const char *chr, int mi
     return nret;
 }
 void bcf_sr_sort_remove_reader(bcf_srs_t *readers, sr_sort_t *srt, int i)
-{
-    free(srt->vcf_buf[i].rec);
-    if ( i+1 < srt->nsr )
-        memmove(&srt->vcf_buf[i], &srt->vcf_buf[i+1], (srt->nsr - i - 1)*sizeof(vcf_buf_t));
-    memset(srt->vcf_buf + srt->nsr - 1, 0, sizeof(vcf_buf_t));
+{   
+    if(srt->vcf_buf)
+    {
+	free(srt->vcf_buf[i].rec);
+	if ( i+1 < srt->nsr )
+	  memmove(&srt->vcf_buf[i], &srt->vcf_buf[i+1], (srt->nsr - i - 1)*sizeof(vcf_buf_t));
+	memset(srt->vcf_buf + srt->nsr - 1, 0, sizeof(vcf_buf_t));
+    }
 }
 sr_sort_t *bcf_sr_sort_init(sr_sort_t *srt)
 {
