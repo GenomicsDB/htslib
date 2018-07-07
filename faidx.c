@@ -673,6 +673,7 @@ faidx_t *fai_load(const char *fn)
     return fai_load3(fn, NULL, NULL, FAI_CREATE);
 }
 
+
 faidx_t *fai_load3_format(const char *fn, const char *fnfai, const char *fngzi,
                    int flags, enum fai_format_options format) {
     return fai_load3_core(fn, fnfai, fngzi, flags, format);
@@ -683,30 +684,8 @@ faidx_t *fai_load_format(const char *fn, enum fai_format_options format) {
     return fai_load3_format(fn, NULL, NULL, FAI_CREATE, format);
 }
 
-
 static void fai_retrieve_into_buffer(const faidx_t *fai, const faidx1_t *val,
-                          long beg, long end, char* s, int *len);
-
-static char* fai_retrieve(const faidx_t *fai, const faidx1_t *val,
-                          long beg, long end, int *len) {
-    char* s = (char*)malloc((size_t) end - beg + 2);
-    if(s == 0)
-    {
-        hts_log_error("Failed to allocate string buffer");
-        *len = -1;
-        return 0;
-    }
-    fai_retrieve_into_buffer(fai, val, beg, end, s, len);
-    if(len < 0)
-    {
-        free(s);
-        return 0;
-    }
-    return s;
-}
-
-static void fai_retrieve_into_buffer(const faidx_t *fai, const faidx1_t *val,
-                          long beg, long end, char* s, int *len) {
+                          uint64_t offset, long beg, long end, char*s, int *len) {
     size_t l;
     int c = 0;
     int ret = bgzf_useek(fai->bgzf,
@@ -721,10 +700,6 @@ static void fai_retrieve_into_buffer(const faidx_t *fai, const faidx1_t *val,
     }
 
     l = 0;
-    if (!s) {
-        *len = -1;
-        return;
-    }
 
     while ( l < end - beg && (c=bgzf_getc(fai->bgzf))>=0 )
         if (isgraph(c)) s[l++] = c;
@@ -737,9 +712,23 @@ static void fai_retrieve_into_buffer(const faidx_t *fai, const faidx1_t *val,
 
     s[l] = '\0';
     *len = l < INT_MAX ? l : INT_MAX;
-    return;
 }
 
+static char* fai_retrieve(const faidx_t *fai, const faidx1_t *val,
+                          uint64_t offset, long beg, long end, int *len) {
+    char *s;
+    s = (char*)malloc((size_t) end - beg + 2);
+    if (!s) {
+        *len = -1;
+        return NULL;
+    }
+    fai_retrieve_into_buffer(fai, val, offset, beg, end, s, len);
+    if((*len) < 0) {
+        free(s);
+        return NULL;
+    }
+    return s;
+}
 
 static int fai_get_val(const faidx_t *fai, const char *str, int *len, faidx1_t *val, long *fbeg, long *fend) {
     char *s, *ep;
@@ -876,6 +865,7 @@ int faidx_seq_len(const faidx_t *fai, const char *seq)
     return kh_val(fai->hash, k).len;
 }
 
+
 static int faidx_adjust_position(const faidx_t *fai, faidx1_t *val, const char *c_name, int *p_beg_i, int *p_end_i, int *len) {
     khiter_t iter;
 
@@ -920,16 +910,17 @@ char *faidx_fetch_seq(const faidx_t *fai, const char *c_name, int p_beg_i, int p
     return fai_retrieve(fai, &val, val.seq_offset, p_beg_i, (long) p_end_i + 1, len);
 }
 
-void faidx_fetch_seq_into_buffer(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, char* seq, int *len)
+void faidx_fetch_seq_into_buffer(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, char* s, int *len)
 {
   faidx1_t val;
 
   // Adjust position
   if (faidx_adjust_position(fai, &val, c_name, &p_beg_i, &p_end_i, len)) {
-    return NULL;
+    *len = 0;
+    return;
   }
 
-  fai_retrieve_into_buffer(fai, &val, p_beg_i, (long) p_end_i + 1, seq, len);
+  fai_retrieve_into_buffer(fai, &val, val.seq_offset, p_beg_i, (long) p_end_i + 1, s, len);
 }
 
 char *faidx_fetch_qual(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, int *len)

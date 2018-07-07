@@ -196,8 +196,9 @@ by end users by calling `free()` on it.
 */
 char *faidx_fetch_seq(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, int *len);
 
-/// Same as faidx_fetch_seq, except that the buffer to hold values is assumed to be allocated and sized correctly
-void faidx_fetch_seq_into_buffer(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, char* seq, int *len);
+/*Same as faidx_fetch_seq, except that the buffer to hold values is assumed to be allocated and sized correctly*/
+void faidx_fetch_seq_into_buffer(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i,
+    char* s, int *len);
 
 /// Fetch the quality string in a region for FASTQ files
 /** @param  fai  Pointer to the faidx_t struct
