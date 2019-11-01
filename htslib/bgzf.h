@@ -3,7 +3,7 @@
 /*
    Copyright (c) 2008 Broad Institute / Massachusetts Institute of Technology
                  2011, 2012 Attractive Chaos <attractor@live.co.uk>
-   Copyright (C) 2009, 2013, 2014,2017 Genome Research Ltd
+   Copyright (C) 2009, 2013, 2014, 2017, 2018 Genome Research Ltd
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -53,6 +53,7 @@ extern "C" {
 
 struct hFILE;
 struct hts_tpool;
+struct kstring_t;
 struct bgzf_mtaux_t;
 typedef struct __bgzidx_t bgzidx_t;
 typedef struct bgzf_cache_t bgzf_cache_t;
@@ -72,18 +73,11 @@ struct BGZF {
     bgzidx_t *idx;      // BGZF index
     int idx_build_otf;  // build index on the fly, set by bgzf_index_build_init()
     z_stream *gz_stream;// for gzip-compressed files
+    int64_t seeked;     // virtual offset of last seek
 };
 #ifndef HTS_BGZF_TYPEDEF
 typedef struct BGZF BGZF;
 #define HTS_BGZF_TYPEDEF
-#endif
-
-#ifndef KSTRING_T
-#define KSTRING_T kstring_t
-typedef struct __kstring_t {
-    size_t l, m;
-    char *s;
-} kstring_t;
 #endif
 
     /******************
@@ -162,6 +156,15 @@ typedef struct __kstring_t {
     ssize_t bgzf_block_write(BGZF *fp, const void *data, size_t length);
 
     /**
+     * Returns the next byte in the file without consuming it.
+     * @param fp     BGZF file handler
+     * @return       -1 on EOF,
+     *               -2 on error,
+     *               otherwise the unsigned byte value.
+     */
+    int bgzf_peek(BGZF *fp);
+
+    /**
      * Read up to _length_ bytes directly from the underlying stream without
      * decompressing.  Bypasses BGZF blocking, so must be used with care in
      * specialised circumstances only.
@@ -208,6 +211,9 @@ typedef struct __kstring_t {
      * @param pos    virtual file offset returned by bgzf_tell()
      * @param whence must be SEEK_SET
      * @return       0 on success and -1 on error
+     *
+     * @note It is not permitted to seek on files open for writing,
+     * or files compressed with gzip (as opposed to bgzip).
      */
     int64_t bgzf_seek(BGZF *fp, int64_t pos, int whence) HTS_RESULT_USED;
 
@@ -275,7 +281,7 @@ typedef struct __kstring_t {
      * @param str    string to write to; must be initialized
      * @return       length of the string; -1 on end-of-file; <= -2 on error
      */
-    int bgzf_getline(BGZF *fp, int delim, kstring_t *str);
+    int bgzf_getline(BGZF *fp, int delim, struct kstring_t *str);
 
     /**
      * Read the next BGZF block.
@@ -324,11 +330,14 @@ typedef struct __kstring_t {
      *
      *  @param fp           BGZF file handler; must be opened for reading
      *  @param uoffset      file offset in the uncompressed data
-     *  @param where        SEEK_SET supported atm
+     *  @param where        must be SEEK_SET
      *
      *  Returns 0 on success and -1 on error.
+     *
+     *  @note It is not permitted to seek on files open for writing,
+     *  or files compressed with gzip (as opposed to bgzip).
      */
-    int bgzf_useek(BGZF *fp, long uoffset, int where) HTS_RESULT_USED;
+    int bgzf_useek(BGZF *fp, off_t uoffset, int where) HTS_RESULT_USED;
 
     /**
      *  Position in uncompressed BGZF
@@ -337,7 +346,7 @@ typedef struct __kstring_t {
      *
      *  Returns the current offset on success and -1 on error.
      */
-    long bgzf_utell(BGZF *fp);
+    off_t bgzf_utell(BGZF *fp);
 
     /**
      * Tell BGZF to build index while compressing.
@@ -345,6 +354,11 @@ typedef struct __kstring_t {
      * @param fp          BGZF file handler; can be opened for reading or writing.
      *
      * Returns 0 on success and -1 on error.
+     *
+     * @note This function must be called before any data has been read or
+     * written, and in particular before calling bgzf_mt() on the same
+     * file handle (as threads may start reading data before the index
+     * has been set up).
      */
     int bgzf_index_build_init(BGZF *fp);
 

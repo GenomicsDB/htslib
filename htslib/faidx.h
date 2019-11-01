@@ -29,7 +29,8 @@
 #ifndef HTSLIB_FAIDX_H
 #define HTSLIB_FAIDX_H
 
-#include "hts_defs.h"
+#include <stdint.h>
+#include "hts.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -163,8 +164,13 @@ faidx_t *fai_load_format(const char *fn, enum fai_format_options format);
 
 The returned sequence is allocated by `malloc()` family and should be destroyed
 by end users by calling `free()` on it.
+
+To work around ambiguous parsing issues, eg both "chr1" and "chr1:100-200"
+are reference names, quote using curly braces.
+Thus "{chr1}:100-200" and "{chr1:100-200}" disambiguate the above example.
 */
 char *fai_fetch(const faidx_t *fai, const char *reg, int *len);
+char *fai_fetch64(const faidx_t *fai, const char *reg, hts_pos_t *len);
 
 /// Fetch the quality string for a region for FASTQ files
 /** @param  fai  Pointer to the faidx_t struct
@@ -172,10 +178,13 @@ char *fai_fetch(const faidx_t *fai, const char *reg, int *len);
     @param  len  Length of the region; -2 if seq not present, -1 general error
     @return      Pointer to the quality string; null on failure
 
-The returned quality string is allocated by `malloc()` family and should be destroyed
-by end users by calling `free()` on it.
+The returned quality string is allocated by `malloc()` family and should be
+destroyed by end users by calling `free()` on it.
+
+Region names can be quoted with curly braces, as for fai_fetch().
 */
 char *fai_fetchqual(const faidx_t *fai, const char *reg, int *len);
+char *fai_fetchqual64(const faidx_t *fai, const char *reg, hts_pos_t *len);
 
 /// Fetch the number of sequences
 /** @param  fai  Pointer to the faidx_t struct
@@ -197,8 +206,22 @@ by end users by calling `free()` on it.
 char *faidx_fetch_seq(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, int *len);
 
 /*Same as faidx_fetch_seq, except that the buffer to hold values is assumed to be allocated and sized correctly*/
-void faidx_fetch_seq_into_buffer(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i,
-    char* s, int *len);
+void faidx_fetch_seq_into_buffer(const faidx_t *fai,
+    const char *c_name, hts_pos_t p_beg_i, hts_pos_t p_end_i,
+    char* s, hts_pos_t *len);
+
+/// Fetch the sequence in a region
+/** @param  fai  Pointer to the faidx_t struct
+    @param  c_name Region name
+    @param  p_beg_i  Beginning position number (zero-based)
+    @param  p_end_i  End position number (zero-based)
+    @param  len  Length of the region; -2 if c_name not present, -1 general error
+    @return      Pointer to the sequence; null on failure
+
+The returned sequence is allocated by `malloc()` family and should be destroyed
+by end users by calling `free()` on it.
+*/
+char *faidx_fetch_seq64(const faidx_t *fai, const char *c_name, hts_pos_t p_beg_i, hts_pos_t p_end_i, hts_pos_t *len);
 
 /// Fetch the quality string in a region for FASTQ files
 /** @param  fai  Pointer to the faidx_t struct
@@ -212,6 +235,19 @@ The returned sequence is allocated by `malloc()` family and should be destroyed
 by end users by calling `free()` on it.
 */
 char *faidx_fetch_qual(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, int *len);
+
+/// Fetch the quality string in a region for FASTQ files
+/** @param  fai  Pointer to the faidx_t struct
+    @param  c_name Region name
+    @param  p_beg_i  Beginning position number (zero-based)
+    @param  p_end_i  End position number (zero-based)
+    @param  len  Length of the region; -2 if c_name not present, -1 general error
+    @return      Pointer to the sequence; null on failure
+
+The returned sequence is allocated by `malloc()` family and should be destroyed
+by end users by calling `free()` on it.
+*/
+char *faidx_fetch_qual64(const faidx_t *fai, const char *c_name, hts_pos_t p_beg_i, hts_pos_t p_end_i, hts_pos_t *len);
 
 /// Query if sequence is present
 /**   @param  fai  Pointer to the faidx_t struct
@@ -228,6 +264,21 @@ const char *faidx_iseq(const faidx_t *fai, int i);
 
 /// Return sequence length, -1 if not present
 int faidx_seq_len(const faidx_t *fai, const char *seq);
+
+/// Parses a region string.
+/** @param  fai   Pointer to the faidx_t struct
+    @param  s     Region string
+    @param  tid   Returns which i-th sequence is described in the region.
+    @param  beg   Returns the start of the region (0 based)
+    @param  end   Returns the one past last of the region (0 based)
+    @param  flags Parsing method, see HTS_PARSE_* in hts.h.
+    @return      pointer to end of parsed s if successs, NULL if not.
+
+    To work around ambiguous parsing issues, eg both "chr1" and "chr1:100-200"
+    are reference names, quote using curly braces.
+    Thus "{chr1}:100-200" and "{chr1:100-200}" disambiguate the above example.
+*/
+const char *fai_parse_region(const faidx_t *fai, const char *s, int *tid, int64_t *beg, int64_t *end, int flags);
 
 #ifdef __cplusplus
 }

@@ -159,20 +159,21 @@ static char *sscan_string(char *s)
     }
 }
 
-static void fscan_string(hFILE *fp, kstring_t *d)
+static int fscan_string(hFILE *fp, kstring_t *d)
 {
     int c, d1, d2, d3, d4;
+    uint32_t e = 0;
 
     while ((c = hgetc(fp)) != EOF) switch (c) {
     case '\\':
-        if ((c = hgetc(fp)) == EOF) return;
+        if ((c = hgetc(fp)) == EOF) return e == 0 ? 0 : -1;
         switch (c) {
-        case 'b': kputc('\b', d); break;
-        case 'f': kputc('\f', d); break;
-        case 'n': kputc('\n', d); break;
-        case 'r': kputc('\r', d); break;
-        case 't': kputc('\t', d); break;
-        default:  kputc(c,    d); break;
+        case 'b': e |= kputc('\b', d) < 0; break;
+        case 'f': e |= kputc('\f', d) < 0; break;
+        case 'n': e |= kputc('\n', d) < 0; break;
+        case 'r': e |= kputc('\r', d) < 0; break;
+        case 't': e |= kputc('\t', d) < 0; break;
+        default:  e |= kputc(c,    d) < 0; break;
         case 'u':
             if ((c = hgetc(fp)) != EOF && (d1 = dehex(c)) >= 0 &&
                 (c = hgetc(fp)) != EOF && (d2 = dehex(c)) >= 0 &&
@@ -180,19 +181,20 @@ static void fscan_string(hFILE *fp, kstring_t *d)
                 (c = hgetc(fp)) != EOF && (d4 = dehex(c)) >= 0) {
                 char buf[8];
                 char *lim = encode_utf8(buf, d1 << 12 | d2 << 8 | d3 << 4 | d4);
-                kputsn(buf, lim - buf, d);
+                e |= kputsn(buf, lim - buf, d) < 0;
             }
             break;
         }
         break;
 
     case '"':
-        return;
+        return e == 0 ? 0 : -1;
 
     default:
-        kputc(c, d);
+        e |= kputc(c, d) < 0;
         break;
     }
+    return e == 0 ? 0 : -1;
 }
 
 static char token_type(hts_json_token *token)
@@ -392,4 +394,43 @@ char hts_json_fskip_value(struct hFILE *fp, char type)
     char ret = skip_value(type, fnext, fp, &str);
     free(str.s);
     return ret;
+}
+
+/*
+ * A function to help with construction of CL tags in @PG records.
+ * Takes an argc, argv pair and returns a single space-separated string.
+ * This string should be deallocated by the calling function.
+ *
+ * Returns malloced char * on success
+ *         NULL on failure
+ */
+char *stringify_argv(int argc, char *argv[]) {
+    char *str, *cp;
+    size_t nbytes = 1;
+    int i, j;
+
+    /* Allocate */
+    for (i = 0; i < argc; i++) {
+        if (i > 0) nbytes += 1;
+        nbytes += strlen(argv[i]);
+    }
+    if (!(str = malloc(nbytes)))
+        return NULL;
+
+    /* Copy */
+    cp = str;
+    for (i = 0; i < argc; i++) {
+        if (i > 0) *cp++ = ' ';
+        j = 0;
+        while (argv[i][j]) {
+            if (argv[i][j] == '\t')
+                *cp++ = ' ';
+            else
+                *cp++ = argv[i][j];
+            j++;
+        }
+    }
+    *cp++ = 0;
+
+    return str;
 }

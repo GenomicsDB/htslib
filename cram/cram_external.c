@@ -47,8 +47,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *-----------------------------------------------------------------------------
  * cram_fd
  */
-SAM_hdr *cram_fd_get_header(cram_fd *fd) { return fd->header; }
-void cram_fd_set_header(cram_fd *fd, SAM_hdr *hdr) { fd->header = hdr; }
+sam_hdr_t *cram_fd_get_header(cram_fd *fd) { return fd->header; }
+void cram_fd_set_header(cram_fd *fd, sam_hdr_t *hdr) { fd->header = hdr; }
 
 int cram_fd_get_version(cram_fd *fd) { return fd->version; }
 void cram_fd_set_version(cram_fd *fd, int vers) { fd->version = vers; }
@@ -130,15 +130,15 @@ static int cram_block_compression_hdr_set_DS(cram_block_compression_hdr *ch,
 
     switch (ch->codecs[ds]->codec) {
     case E_HUFFMAN:
-        if (ch->codecs[ds]->huffman.ncodes != 1)
+        if (ch->codecs[ds]->u.huffman.ncodes != 1)
             return -1;
-        ch->codecs[ds]->huffman.codes[0].symbol = new_rg;
+        ch->codecs[ds]->u.huffman.codes[0].symbol = new_rg;
         return 0;
 
     case E_BETA:
-        if (ch->codecs[ds]->beta.nbits != 0)
+        if (ch->codecs[ds]->u.beta.nbits != 0)
             return -1;
-        ch->codecs[ds]->beta.offset = -new_rg;
+        ch->codecs[ds]->u.beta.offset = -new_rg;
         return 0;
 
     default:
@@ -209,9 +209,12 @@ void cram_block_set_crc32(cram_block *b, int32_t crc) { b->crc32 = crc; }
 void cram_block_set_data(cram_block *b, void *data) { BLOCK_DATA(b) = data; }
 void cram_block_set_size(cram_block *b, int32_t size) { BLOCK_SIZE(b) = size; }
 
-int cram_block_append(cram_block *b, void *data, int size) {
+int cram_block_append(cram_block *b, const void *data, int size) {
     BLOCK_APPEND(b, data, size);
-    return BLOCK_DATA(b) ? 0 : -1; // It'll do for now...
+    return 0;
+
+ block_err:
+    return -1;
 }
 void cram_block_update_size(cram_block *b) { BLOCK_UPLEN(b); }
 

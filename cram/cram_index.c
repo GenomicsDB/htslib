@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdio.h>
 #include <errno.h>
 #include <assert.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include <zlib.h>
@@ -98,8 +99,10 @@ static int kget_int32(kstring_t *k, size_t *pos, int32_t *val_p) {
     if (p >= k->l || !(k->s[p] >= '0' && k->s[p] <= '9'))
         return -1;
 
-    while (p < k->l && k->s[p] >= '0' && k->s[p] <= '9')
-        val = val*10 + k->s[p++]-'0';
+    while (p < k->l && k->s[p] >= '0' && k->s[p] <= '9') {
+        int digit = k->s[p++]-'0';
+        val = val*10 + digit;
+    }
 
     *pos = p;
     *val_p = sign*val;
@@ -121,8 +124,10 @@ static int kget_int64(kstring_t *k, size_t *pos, int64_t *val_p) {
     if (p >= k->l || !(k->s[p] >= '0' && k->s[p] <= '9'))
         return -1;
 
-    while (p < k->l && k->s[p] >= '0' && k->s[p] <= '9')
-        val = val*10 + k->s[p++]-'0';
+    while (p < k->l && k->s[p] >= '0' && k->s[p] <= '9') {
+        int digit = k->s[p++]-'0';
+        val = val*10 + digit;
+    }
 
     *pos = p;
     *val_p = sign*val;
@@ -229,7 +234,7 @@ int cram_index_load(cram_fd *fd, const char *fn, const char *fn_idx) {
             goto fail;
 
         e.end += e.start-1;
-        //printf("%d/%d..%d\n", e.refid, e.start, e.end);
+        //printf("%d/%d..%d-offset=%" PRIu64 ",len=%d,slice=%d\n", e.refid, e.start, e.end, e.offset, e.len, e.slice);
 
         if (e.refid < -1) {
             hts_log_error("Malformed index file, refid %d", e.refid);
@@ -364,6 +369,7 @@ cram_index *cram_index_query(cram_fd *fd, int refid, int pos,
 
     case HTS_IDX_NOCOOR:
         refid = -1;
+        pos = 0;
         break;
 
     case HTS_IDX_START: {
@@ -491,8 +497,12 @@ int cram_seek_to_refpos(cram_fd *fd, cram_range *r) {
 
     pthread_mutex_lock(&fd->range_lock);
     fd->range = *r;
-    if (r->refid == HTS_IDX_START || r->refid == HTS_IDX_REST)
+    if (r->refid == HTS_IDX_NOCOOR) {
+        fd->range.refid = -1;
+        fd->range.start = 0;
+    } else if (r->refid == HTS_IDX_START || r->refid == HTS_IDX_REST) {
         fd->range.refid = -2; // special case in cram_next_slice
+    }
     pthread_mutex_unlock(&fd->range_lock);
 
     if (fd->ctr) {
@@ -524,6 +534,7 @@ int cram_seek_to_refpos(cram_fd *fd, cram_range *r) {
  *
  * Returns 0 on success
  *        -1 on read failure
+ *        -2 on wrong sort order
  *        -4 on write failure
  */
 static int cram_index_build_multiref(cram_fd *fd,
@@ -533,14 +544,27 @@ static int cram_index_build_multiref(cram_fd *fd,
                                      off_t cpos,
                                      int32_t landmark,
                                      int sz) {
-    int i, ref = -2, ref_start = 0, ref_end;
+    int i, ref = -2;
+    int64_t ref_start = 0, ref_end;
     char buf[1024];
 
-    if (0 != cram_decode_slice(fd, c, s, fd->header))
-        return -1;
+    if (fd->mode != 'w') {
+        if (0 != cram_decode_slice(fd, c, s, fd->header))
+            return -1;
+    }
 
     ref_end = INT_MIN;
+
+    int32_t last_ref = -9;
+    int32_t last_pos = -9;
     for (i = 0; i < s->hdr->num_records; i++) {
+        if (s->crecs[i].ref_id == last_ref && s->crecs[i].apos < last_pos) {
+            hts_log_error("CRAM file is not sorted by chromosome / position");
+            return -2;
+        }
+        last_ref = s->crecs[i].ref_id;
+        last_pos = s->crecs[i].apos;
+
         if (s->crecs[i].ref_id == ref) {
             if (ref_end < s->crecs[i].aend)
                 ref_end = s->crecs[i].aend;
@@ -548,7 +572,7 @@ static int cram_index_build_multiref(cram_fd *fd,
         }
 
         if (ref != -2) {
-            sprintf(buf, "%d\t%d\t%d\t%"PRId64"\t%d\t%d\n",
+            sprintf(buf, "%d\t%"PRId64"\t%"PRId64"\t%"PRId64"\t%d\t%d\n",
                     ref, ref_start, ref_end - ref_start + 1,
                     (int64_t)cpos, landmark, sz);
             if (bgzf_write(fp, buf, strlen(buf)) < 0)
@@ -561,7 +585,7 @@ static int cram_index_build_multiref(cram_fd *fd,
     }
 
     if (ref != -2) {
-        sprintf(buf, "%d\t%d\t%d\t%"PRId64"\t%d\t%d\n",
+        sprintf(buf, "%d\t%"PRId64"\t%"PRId64"\t%"PRId64"\t%d\t%d\n",
                 ref, ref_start, ref_end - ref_start + 1,
                 (int64_t)cpos, landmark, sz);
         if (bgzf_write(fp, buf, strlen(buf)) < 0)
@@ -570,6 +594,80 @@ static int cram_index_build_multiref(cram_fd *fd,
 
     return 0;
 }
+
+/*
+ * Adds a single slice to the index.
+ */
+int cram_index_slice(cram_fd *fd,
+                     cram_container *c,
+                     cram_slice *s,
+                     BGZF *fp,
+                     off_t cpos,
+                     off_t spos, // relative to cpos
+                     off_t sz) {
+    int ret;
+    char buf[1024];
+
+    if (sz > INT_MAX) {
+        hts_log_error("CRAM slice is too big (%"PRId64" bytes)",
+                      (int64_t) sz);
+        return -1;
+    }
+
+    if (s->hdr->ref_seq_id == -2) {
+        ret = cram_index_build_multiref(fd, c, s, fp, cpos, spos, sz);
+    } else {
+        sprintf(buf, "%d\t%"PRId64"\t%"PRId64"\t%"PRId64"\t%d\t%d\n",
+                s->hdr->ref_seq_id, s->hdr->ref_seq_start,
+                s->hdr->ref_seq_span, (int64_t)cpos, (int)spos, (int)sz);
+        ret = (bgzf_write(fp, buf, strlen(buf)) >= 0)? 0 : -4;
+    }
+
+    return ret;
+}
+
+/*
+ * Adds a single container to the index.
+ */
+static
+int cram_index_container(cram_fd *fd,
+                         cram_container *c,
+                         BGZF *fp,
+                         off_t cpos) {
+    int j;
+    off_t spos;
+
+    // 2.0 format
+    for (j = 0; j < c->num_landmarks; j++) {
+        cram_slice *s;
+        off_t sz;
+        int ret;
+
+        spos = htell(fd->fp);
+        if (spos - cpos - c->offset != c->landmark[j]) {
+            hts_log_error("CRAM slice offset %"PRId64" does not match"
+                          " landmark %d in container header (%d)",
+                          spos - cpos - c->offset, j, c->landmark[j]);
+            return -1;
+        }
+
+        if (!(s = cram_read_slice(fd))) {
+            return -1;
+        }
+
+        sz = htell(fd->fp) - spos;
+        ret = cram_index_slice(fd, c, s, fp, cpos, c->landmark[j], sz);
+
+        cram_free_slice(s);
+
+        if (ret < 0) {
+            return ret;
+        }
+    }
+
+    return 0;
+}
+
 
 /*
  * Builds an index file.
@@ -584,9 +682,10 @@ static int cram_index_build_multiref(cram_fd *fd,
  */
 int cram_index_build(cram_fd *fd, const char *fn_base, const char *fn_idx) {
     cram_container *c;
-    off_t cpos, spos, hpos;
+    off_t cpos, hpos;
     BGZF *fp;
     kstring_t fn_idx_str = {0};
+    int64_t last_ref = -9, last_start = -9;
 
     // Useful for cram_index_build_multiref
     cram_set_option(fd, CRAM_OPT_REQUIRED_FIELDS, SAM_RNAME | SAM_POS | SAM_CIGAR);
@@ -607,8 +706,6 @@ int cram_index_build(cram_fd *fd, const char *fn_base, const char *fn_idx) {
 
     cpos = htell(fd->fp);
     while ((c = cram_read_container(fd))) {
-        int j;
-
         if (fd->err) {
             perror("Cram container read");
             return -1;
@@ -624,39 +721,16 @@ int cram_index_build(cram_fd *fd, const char *fn_base, const char *fn_idx) {
         if (!c->comp_hdr)
             return -1;
 
-        // 2.0 format
-        for (j = 0; j < c->num_landmarks; j++) {
-            char buf[1024];
-            cram_slice *s;
-            int sz, ret;
+        if (c->ref_seq_id == last_ref && c->ref_seq_start < last_start) {
+            hts_log_error("CRAM file is not sorted by chromosome / position");
+            return -2;
+        }
+        last_ref = c->ref_seq_id;
+        last_start = c->ref_seq_start;
 
-            spos = htell(fd->fp);
-            assert(spos - cpos - c->offset == c->landmark[j]);
-
-            if (!(s = cram_read_slice(fd))) {
-                bgzf_close(fp);
-                return -1;
-            }
-
-            sz = (int)(htell(fd->fp) - spos);
-
-            if (s->hdr->ref_seq_id == -2) {
-                ret = cram_index_build_multiref(fd, c, s, fp,
-                                                cpos, c->landmark[j], sz);
-            } else {
-                sprintf(buf, "%d\t%d\t%d\t%"PRId64"\t%d\t%d\n",
-                        s->hdr->ref_seq_id, s->hdr->ref_seq_start,
-                        s->hdr->ref_seq_span, (int64_t)cpos,
-                        c->landmark[j], sz);
-                ret = (bgzf_write(fp, buf, strlen(buf)) >= 0)? 0 : -4;
-            }
-
-            cram_free_slice(s);
-
-            if (ret < 0) {
-                bgzf_close(fp);
-                return ret;
-            }
+        if (cram_index_container(fd, c, fp, cpos) < 0) {
+            bgzf_close(fp);
+            return -1;
         }
 
         cpos = htell(fd->fp);

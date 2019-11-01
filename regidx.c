@@ -57,7 +57,8 @@ struct _regidx_t
 
     // temporary data for index initialization
     kstring_t str;
-    int rid_prev, start_prev, end_prev;
+    int rid_prev;
+    hts_pos_t start_prev, end_prev;
     int payload_size;
     void *payload;
 };
@@ -82,7 +83,7 @@ char **regidx_seq_names(regidx_t *idx, int *n)
     return idx->seq_names;
 }
 
-int _regidx_build_index(regidx_t *idx)
+static int build_index(regidx_t *idx)
 {
     int iseq;
     for (iseq=0; iseq<idx->nseq; iseq++)
@@ -119,7 +120,7 @@ int _regidx_build_index(regidx_t *idx)
 int regidx_insert(regidx_t *idx, char *line)
 {
     if ( !line )
-        return _regidx_build_index(idx);
+        return build_index(idx);
 
     char *chr_from, *chr_to;
     reg_t reg;
@@ -155,7 +156,7 @@ int regidx_insert(regidx_t *idx, char *line)
     {
         if ( idx->start_prev > reg.start || (idx->start_prev==reg.start && idx->end_prev>reg.end) )
         {
-            hts_log_error("The regions are not sorted: %s:%d-%d is before %s:%d-%d",
+            hts_log_error("The regions are not sorted: %s:%"PRIhts_pos"-%"PRIhts_pos" is before %s:%"PRIhts_pos"-%"PRIhts_pos,
                 idx->str.s,idx->start_prev+1,idx->end_prev+1,idx->str.s,reg.start+1,reg.end+1);
             return -1;
         }
@@ -243,7 +244,7 @@ void regidx_destroy(regidx_t *idx)
     free(idx);
 }
 
-int regidx_overlap(regidx_t *idx, const char *chr, uint32_t from, uint32_t to, regitr_t *itr)
+int regidx_overlap(regidx_t *idx, const char *chr, hts_pos_t from, hts_pos_t to, regitr_t *itr)
 {
     if ( itr ) itr->i = itr->n = 0;
 

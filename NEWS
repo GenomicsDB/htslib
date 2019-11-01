@@ -1,6 +1,221 @@
 Noteworthy changes in release a.b
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+* Incompatible changes:  Several functions and data types have been changed
+  in this release, and the shared library soversion has been bumped.
+
+  - HTSlib now supports 64 bit reference positions.  This means several
+    structures, function parameters, and return values have been made bigger
+    to allow larger values to be stored.  While most code that uses
+    HTSlib interfaces should still build after this change, some alterations
+    may be needed - notably to printf() formats where the values of structure
+    members are being printed.
+
+    Due to file format limitations, large positions are only supported
+    when reading and writing SAM and VCF files.
+
+    See README.large_positions.md for more information.
+
+  - An extra field has been added to the kbitset_t struct so bitsets can
+    be made smaller (and later enlarged) without involving memory allocation.
+
+  - A new field has been added to the bam_pileup1_t structure to keep track
+    of which CIGAR operator is being processed.  This is used by a new
+    bam_plp_insertion() function which can be used to return the sequence of
+    any inserted bases at a given pileup location.  If the alignment includes
+    CIGAR P operators, the returned sequence will include pads.
+
+  - The hts_itr_t and hts_itr_multi_t structures have been merged and can be
+    used interchangeably.  Extra fields have been added to hts_itr_t to support
+    this.  hts_itr_multi_t is now a typedef for hts_itr_t; sam_itr_multi_next()
+    is now an alias for sam_itr_next() and hts_itr_multi_destroy() is an alias
+    for hts_itr_destroy().
+
+  - Elements in the hts_reglist_t structure have been reordered slightly
+    so that they pack together better.
+
+  - bgzf_utell() and bgzf_useek() now use type off_t instead of long for
+    the offset.  This allows them to work correctly on files longer than
+    2G bytes on Windows and 32-bit Linux.
+
+  - A number of functions that used to return void now return int so that
+    they can report problems like memory allocation failures.  Callers
+    should take care to check the return values from these functions.
+    The affected functions are:
+       ksort.h:             ks_introsort(), ks_mergesort()
+       sam.h:               bam_mplp_init_overlaps()
+       synced_bcf_reader.h: bcf_sr_regions_flush()
+       vcf.h:               bcf_format_gt(), bcf_fmt_array(),
+			    bcf_enc_int1(), bcf_enc_size(),
+                            bcf_enc_vchar(), bcf_enc_vfloat(), bcf_enc_vint(),
+			    bcf_hdr_set_version(), bcf_hrec_format()
+       vcfutils.h:          bcf_remove_alleles()
+
+  - bcf_set_variant_type() now outputs VCF_OVERLAP for spanning
+    deletions (ALT=*).
+
+  - A new field (hrecs) has been added to the bam_hdr_t structure for
+    use by the new header API.  The old sdict field is now not used and
+    marked as deprecated.  The l_text field has been changed from uint32_t
+    to size_t, to allow for very large headers in SAM files.  The text
+    and l_text fields have been left for backwards compatibility, but
+    should not be accessed directly in code that uses the new header API.
+    To access the header text, the new functions sam_hdr_length() and
+    sam_hdr_str() should be used instead.  The old cigar_tab field is
+    now marked as deprecated; use the new bam_cigar_table[] instead.
+
+  - The bam1_core_t structure's l_qname and l_extranul fields have been
+    rearranged and enlarged; l_qname still includes the extra NULs.
+    (Almost all code should use bam_get_qname(), bam_get_cigar(), etc,
+    and has no need to use these fields directly.)  HTSlib now supports
+    the SAM specification's full 254 QNAME length again.  (#520)
+
+  - bcf_index_load() no longer tries the '.tbi' suffix when looking for
+    BCF index files (.tbi indexes are for text files, not binary BCF).
+
+  - htsFile has a new 'state' member to support SAM multi-threading.
+
+  - A new field has been added to the bam1_t structure, and others
+    have been rearranged to remove structure holes.
+
+* A new SAM/BAM/CRAM header API has been added to HTSlib, allowing header
+  data to be updated without having to parse or rewrite large parts of the
+  header text.  See htslib/sam.h for function definitions and documentation.
+
+  The header typedef and several pre-existing functions have been renamed
+  to have a sam_hdr_ prefix: sam_hdr_t, sam_hdr_init(), sam_hdr_destroy(),
+  and sam_hdr_dup().  (The existing bam_hdr_-prefixed names are still
+  provided for compatibility with existing code.)
+
+* SAM format reading and writing is now much faster.  Compared to revision 1.9,
+  reading uncompressed SAM may be up to 100% faster; writing up to 80%.  The
+  exact improvement depends on which compiler options are used and the
+  nature of the SAM file itself.
+
+  The results of parsing invalid SAM files may change due to this update.
+  For example some records where the QUAL string is shorter than SEQ
+  may report "invalid QUAL character" instead of "SEQ and QUAL are of
+  different length".
+
+* The SAM reader and writer can now by run in multi-threaded mode using the
+  thread pool.  This means all supported sequence formats (SAM, BAM and CRAM)
+  now support multi-threaded reading and writing.
+
+  Note that the multi-threaded SAM reader does not currently support seek
+  operations.  Trying to do this (for example with an iterator range request)
+  will result in the SAM readers dropping back to single-threaded mode.
+
+* HTSlib now supports the @SQ-AN header field, which lists alternative names
+  for reference sequences.  This means given "@SQ SN:1 AN:chr1", tools like
+  samtools can accept requests for "1" or "chr1" equivalently.  (PR #931)
+
+* Saving a file with a '.sam.gz' suffix will write BGZF-compressed SAM format.
+
+* hts_detect_format() no longer identifies arbitrary text files as SAM.
+  Instead the first few lines are checked for @HD/etc headers or having
+  11 or more SAM-like columns.  It also identifies BED/FASTA/FASTQ files
+  and several index formats.  (#200, #719, PR #721)
+
+* Empty (0-length) files are no longer considered to be valid SAM files.
+  Input files without any headers or records at all are usually seen in
+  pipelines such as `somecmd | samtools ...` with `somecmd` aborting and
+  outputting nothing, and it is beneficial for the second command to
+  propagate the error.  (#261)
+
+* New API functions hts_reglist_create() and sam_itr_regarray() are added
+  to create hts_reglist_t region lists from `chr:<from>-<to>` type region
+  specifiers.
+
+* An improved region parsing function hts_parse_region() is added.  This
+  is designed to help deal with ambiguities that arise when reference names
+  contain colons followed by numbers.  It does this by checking possible
+  names against the known list of references in the input file.  When even
+  this method fails (for example when names "chr1" and "chr1:100-200" both
+  exist) the reference name part can be quoted using curly braces.  Thus
+  "{chr1}:100-200" and "{chr1:100-200}" disambiguate the above example.
+
+  Specialisations of this function sam_parse_region() and fai_parse_region()
+  are also added for SAM/BAM/CRAM files and fasta/fastq files respectively.
+  HTSlib iterator functions that accept a region specifier have been
+  upgraded to use the new interface.
+
+* hts_idx_load() and hts_open() have been changed to support indexes
+  which are not stored in the same location as the indexed file.  This works
+  by appending a delimiter '##idx##' and the index file location to the
+  normal file name.  hts_open() opens the file in the part before the
+  delimiter; hts_idx_load() opens the index in the part after it.  So for
+  example, "/path1/my_data.bam##idx##/path2/my_index.csi" will open bam file
+  "/path1/my_data.bam" and index file "/path2/my_index.csi".
+
+* New API functions hts_idx_load3(), sam_index_load3(), tbx_index_load3()
+  and bcf_index_load3() have been added.  These allow control of whether
+  remote indexes should be cached locally, and allow the error message
+  printed when the index does not exist to be suppressed.
+
+* hts_idx_load() now checks locally for all possible index names before
+  attempting to download a remote index.  It also checks that the remote
+  file it downloads is actually an index before trying to save and use
+  it.  (https://github.com/samtools/samtools/issues/1045)
+
+* New API functions bam_set_mempolicy() and bam_get_mempolicy() have
+  been added.  These allow more control over the ownership of bam1_t
+  alignment record data; see documentation in htslib/sam.h for more
+  information.
+
+* In addition to the existing hts_version() function, which reflects the
+  HTSlib version being used at runtime, <htslib/hts.h> now also provides
+  HTS_VERSION, a preprocessor macro reflecting the HTSlib version that
+  a program is being compiled against.  (#794, PR #951)
+
+* Changes to hfile_s3, which provides support for the AWS S3 API.
+
+  - hfile_s3 now uses version 4 signatures by default.  Attempting to write to
+    an S3 bucket will also now work correctly.  It is possible to force
+    version 2 signatures by creating environment variable HTS_S3_V2 (the exact
+    value does not matter, it just has to exist).  Note that writing depends
+    on features that need version 4 signatures, so forcing version 2 will
+    disable writes.
+
+  - hfile_s3 will automatically retry requests where the region endpoint
+    was not specified correctly, either by following the 301 redirect (when
+    using path-style requests) or reading the 400 response (when using
+    virtual-hosted style requests and version 4 signatures).  The first
+    region to try can be set by using the AWS_DEFAULT_REGION environment
+    variable, by setting "region" in ".aws/credentials" or by setting
+    "bucket_location" in ".s3cfg".
+
+  - hfile_s3 now percent-escapes the path component of s3:// URLs.  For
+    backwards-compatibility it will ignore any paths that have already
+    been escaped (detected by looking for '%' followed by two hexadecimal
+    digits.)
+
+* The htsfile utility can now copy files (including to/from URLs using
+  HTSlib's remote access facilities), in addition to its existing uses
+  of identifying file formats and displaying sequence or variant data.
+
+* The bgzip utility can now decompress files with non-.gz extensions;
+  for example, bgzip -d gnomad.sites.vcf.bgz  (#129)
+
+* Fixed bug where some 8 or 16-bit negative integers were stored using values
+  reserved by the BCF specification.  These numbers are now promoted to the
+  next size up, so -121 to -128 are stored using at least 16 bits, and -32761
+  to -32768 are stored using 32 bits.
+
+  Note that while BCF files affected by this bug are technically incorrect,
+  it is still possible to read them.  When converting to VCF format,
+  HTSlib (and therefore bcftools) will interpret the values as intended
+  and write out the correct negative numbers. (#766, thanks to John Marshall)
+
+* Pileup now correctly reports alignments that begin with a reference skip (N)
+  operation.  This fixes a bug where pileup data structures could be left
+  in an inconsistent state when trying to process such an alignment.
+
+* Fixed bug where alignments starting 0M could cause an invalid memory access
+  in sam_prob_realn().
+
+Noteworthy changes in release 1.9 (18th July 2018)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 * If `./configure` fails, `make` will stop working until either configure
   is re-run successfully, or `make distclean` is used.  This makes
   configuration failures more obvious.  (#711, thanks to John Marshall)
@@ -56,6 +271,18 @@ Noteworthy changes in release a.b
     if an INFO END tag was present. (71b00a)
 
   - Fixed warnings found when compiling with gcc 8.1.0. (#700)
+
+  - sam_hdr_read() and sam_hdr_write() will now return an error code
+    if passed a NULL file pointer, instead of crashing.
+
+  - Fixed possible negative array look-up in sam_parse1() that somehow escaped
+    previous fuzz testing. (CVE-2018-13845, #731, reported by @fCorleone)
+
+  - Fixed bug where cram range queries could incorrectly report an error
+    when using multiple threads. (#734, reported by Brent Pedersen)
+
+  - Fixed very rare rANS normalisation bug that could cause an assertion
+    failure when writing CRAM files.  (#739, reported by @carsonhh)
 
 Noteworthy changes in release 1.8 (3rd April 2018)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -202,7 +429,8 @@ Noteworthy changes in release 1.4.1  (8th May 2017)
 
 This is primarily a security bug fix update.
 
-* Fixed SECURITY (CVE-2017-1000206) issue with buffer overruns with malicious data. (#514).
+* Fixed SECURITY (CVE-2017-1000206) issue with buffer overruns with
+  malicious data. (#514)
 
 * S3 support for non Amazon AWS endpoints. (#506)
 
