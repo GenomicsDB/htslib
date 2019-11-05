@@ -1257,6 +1257,7 @@ static inline int bcf_format_gt(bcf_fmt_t *fmt, int isample, kstring_t *str)
         case BCF_BT_INT8:  BRANCH(int8_t,  bcf_int8_missing, bcf_int8_vector_end); break;
         case BCF_BT_INT16: BRANCH(int16_t, bcf_int16_missing, bcf_int16_vector_end); break;
         case BCF_BT_INT32: BRANCH(int32_t, bcf_int32_missing, bcf_int32_vector_end); break;
+        //didn't bother with 64 since this is GT and if we have 4B alleles, we have much bigger issues
         case BCF_BT_NULL:  e |= kputc('.', str) < 0; break;
         default: hts_log_error("Unexpected type %d", fmt->type); return -2;
     }
@@ -1264,13 +1265,19 @@ static inline int bcf_format_gt(bcf_fmt_t *fmt, int isample, kstring_t *str)
     return e == 0 ? 0 : -1;
 }
 
-static inline int bcf_enc_size(kstring_t *s, int size, int type)
+static inline int bcf_enc_size(kstring_t *s, size_t size, int type)
 {
     uint32_t e = 0;
     if (size >= 15) {
         e |= kputc(15<<4|type, s) < 0;
         if (size >= 128) {
-            if (size >= 32768) {
+	    if(size > INT32_MAX) {
+		e |= kputc(1<<4|BCF_BT_INT64, s) < 0;
+		e |= kputsn((char*)&size, 8, s) < 0;
+		//decode functions can't deal with 64 bit values - so pointless
+		//return error
+		return -1;
+	    } else if (size >= 32768) {
                 int32_t x = size;
                 e |= kputc(1<<4|BCF_BT_INT32, s) < 0;
                 e |= kputsn((char*)&x, 4, s) < 0;
@@ -1291,9 +1298,11 @@ static inline int bcf_enc_inttype(long x)
 {
     if (x <= BCF_MAX_BT_INT8 && x >= BCF_MIN_BT_INT8) return BCF_BT_INT8;
     if (x <= BCF_MAX_BT_INT16 && x >= BCF_MIN_BT_INT16) return BCF_BT_INT16;
-    return BCF_BT_INT32;
+    if (x <= BCF_MAX_BT_INT32 && x >= BCF_MIN_BT_INT32) return BCF_BT_INT32;
+    return BCF_BT_INT64;
 }
 
+//bcf_enc_long1 deals with 64-bit ints, this function only deals with 32 bit ints
 static inline int bcf_enc_int1(kstring_t *s, int32_t x)
 {
     uint32_t e = 0;
@@ -1345,7 +1354,7 @@ static inline int64_t bcf_dec_int1(const uint8_t *p, int type, uint8_t **q)
         *q = (uint8_t*)p + 4;
         return le_to_i32(p);
     } else if (type == BCF_BT_INT64) {
-        *q = (uint8_t*)p + 4;
+        *q = (uint8_t*)p + 8;
         return le_to_i64(p);
     } else { // Invalid type.
         return 0;

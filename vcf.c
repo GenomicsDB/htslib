@@ -1205,7 +1205,10 @@ size_t bcf_hdr_serialize(bcf_hdr_t* h, uint8_t* buffer, size_t offset, const siz
 
         if((offset+5+sizeof(int)+hlen) <= capacity)
         {
-            memcpy(buffer+offset, "BCF\2\2", 5);
+	    if(!keep_idx_fields)  //htsjdk cannot deal with 2.2 header
+		memcpy(buffer+offset, "BCF\2\1", 5);
+	    else
+		memcpy(buffer+offset, "BCF\2\2", 5);
             offset += 5;
             memcpy(buffer+offset, &hlen, sizeof(int));
             offset += sizeof(int);
@@ -1444,7 +1447,8 @@ static int bcf_record_check(const bcf_hdr_t *hdr, bcf1_t *rec) {
     uint32_t i, reports;
     const uint32_t is_integer = ((1 << BCF_BT_INT8)  |
                                  (1 << BCF_BT_INT16) |
-                                 (1 << BCF_BT_INT32));
+                                 (1 << BCF_BT_INT32) |
+                                 (1 << BCF_BT_INT64));
     const uint32_t is_valid_type = (is_integer          |
                                     (1 << BCF_BT_NULL)  |
                                     (1 << BCF_BT_FLOAT) |
@@ -2266,6 +2270,71 @@ static int bcf_enc_long1(kstring_t *s, int64_t x) {
     return e == 0 ? 0 : -1;
 }
 
+int bcf_enc_vlong(kstring_t *s, const int n, const int64_t *a, int wsize)
+{
+    int64_t max = INT64_MIN, min = INT64_MAX;
+    int i;
+    if (n <= 0) bcf_enc_size(s, 0, BCF_BT_NULL);
+    else if (n == 1) bcf_enc_long1(s, a[0]);
+    else {
+        if (wsize <= 0) wsize = n;
+        for (i = 0; i < n; ++i) {
+            if (a[i] == bcf_int64_missing || a[i] == bcf_int64_vector_end ) continue;
+            if (max < a[i]) max = a[i];
+            if (min > a[i]) min = a[i];
+        }
+        if (max <= BCF_MAX_BT_INT8 && min >= BCF_MIN_BT_INT8) {
+            bcf_enc_size(s, wsize, BCF_BT_INT8);
+            for (i = 0; i < n; ++i)
+                if ( a[i]==bcf_int64_vector_end ) kputc(bcf_int8_vector_end, s);
+                else if ( a[i]==bcf_int64_missing ) kputc(bcf_int8_missing, s);
+                else kputc(a[i], s);
+        } else if (max <= BCF_MAX_BT_INT16 && min >= BCF_MIN_BT_INT16) {
+            uint8_t *p;
+            bcf_enc_size(s, wsize, BCF_BT_INT16);
+            ks_resize(s, s->l + n * sizeof(int16_t));
+            p = (uint8_t *) s->s + s->l;
+            for (i = 0; i < n; ++i)
+            {
+                int16_t x;
+                if ( a[i]==bcf_int64_vector_end ) x = bcf_int16_vector_end;
+                else if ( a[i]==bcf_int64_missing ) x = bcf_int16_missing;
+                else x = a[i];
+                i16_to_le(x, p);
+                p += sizeof(int16_t);
+            }
+            s->l += n * sizeof(int16_t);
+        } else if(max <= BCF_MAX_BT_INT32 && min >= BCF_MIN_BT_INT32){
+            uint8_t *p;
+            bcf_enc_size(s, wsize, BCF_BT_INT32);
+            ks_resize(s, s->l + n * sizeof(int32_t));
+            p = (uint8_t *) s->s + s->l;
+            for (i = 0; i < n; ++i) {
+		int32_t x;
+                if ( a[i]==bcf_int64_vector_end ) x = bcf_int32_vector_end;
+                else if ( a[i]==bcf_int64_missing ) x = bcf_int32_missing;
+                else x = a[i];
+                i32_to_le(x, p);
+                p += sizeof(int32_t);
+            }
+            s->l += n * sizeof(int32_t);
+        } else {
+            uint8_t *p;
+            bcf_enc_size(s, wsize, BCF_BT_INT64);
+            ks_resize(s, s->l + n * sizeof(int64_t));
+            p = (uint8_t *) s->s + s->l;
+            for (i = 0; i < n; ++i) {
+		int64_t x = a[i];
+                i64_to_le(x, p);
+                p += sizeof(int64_t);
+            }
+            s->l += n * sizeof(int64_t);
+        }
+    }
+
+    return 0; // FIXME: check for errs in this function
+}
+
 static inline int serialize_float_array(kstring_t *s, size_t n, const float *a) {
     uint8_t *p;
     size_t i;
@@ -2332,6 +2401,7 @@ int bcf_fmt_array(kstring_t *s, int n, int type, void *data)
             case BCF_BT_INT8:  BRANCH(int8_t,  le_to_i8, v==bcf_int8_missing,  v==bcf_int8_vector_end,  kputw(v, s)); break;
             case BCF_BT_INT16: BRANCH(int16_t, le_to_i16, v==bcf_int16_missing, v==bcf_int16_vector_end, kputw(v, s)); break;
             case BCF_BT_INT32: BRANCH(int32_t, le_to_i32, v==bcf_int32_missing, v==bcf_int32_vector_end, kputw(v, s)); break;
+            case BCF_BT_INT64: BRANCH(int64_t, le_to_i64, v==bcf_int64_missing, v==bcf_int64_vector_end, kputll(v, s)); break;
             case BCF_BT_FLOAT: BRANCH(uint32_t, le_to_u32, v==bcf_float_missing, v==bcf_float_vector_end, kputd(le_to_float(p), s)); break;
             default: hts_log_error("Unexpected type %d", type); exit(1); break;
         }
@@ -2675,6 +2745,7 @@ int vcf_parse(kstring_t *s, const bcf_hdr_t *h, bcf1_t *v)
     ks_tokaux_t aux;
     int max_n_flt = 0, max_n_val = 0;
     int32_t *flt_a = NULL, *val_a = NULL;
+    int64_t* val64_a = NULL; //similar function as val_a for 64 bit int
     int ret = -2;
     const uint32_t MAX_ALLELES = 65535; // n_allele is 16 bits
     const uint32_t MAX_INFO    = 65535; // n_info   is 16 bits
@@ -2862,31 +2933,34 @@ int vcf_parse(kstring_t *s, const bcf_hdr_t *h, bcf1_t *v)
                             }
                             max_n_val = n_val;
                             val_a = z;
+			    //reallocate buffer holding 64 bit ints as well
+			    val64_a = (int64_t*)realloc((void*)val64_a, n_val*sizeof(int64_t));
+			    if(val64_a == 0) {
+				hts_log_error("Failed to allocate memory for 64-bit int buffer in vcf_parse");
+				v->errcode |= BCF_ERR_LIMITS;
+				goto err;
+			    }
                         }
-                        if ((y>>4&0xf) == BCF_HT_INT) {
+                        if (((y>>4&0xf) == BCF_HT_INT) || ((y>>4&0xf) == BCF_HT_LONG)) {
                             // Allow first value only to be 64 bit
                             // (for large END value)
                             int64_t v64 = strtoll(val, &te, 10);
                             if ( te==val ) { // conversion failed
-                                val_a[0] = bcf_int32_missing;
+                                val64_a[0] = bcf_int64_missing;
                                 v64 = bcf_int64_missing;
                             } else {
-                                val_a[0] = v64 >= BCF_MIN_BT_INT32 && v64 <= BCF_MAX_BT_INT32 ? v64 : bcf_int32_missing;
+                                val64_a[0] = v64;
                             }
                             for (t = te; *t && *t != ','; t++);
                             if (*t == ',') ++t;
                             for (i = 1; i < n_val; ++i, ++t)
                             {
-                                val_a[i] = strtol(t, &te, 10);
+                                val64_a[i] = strtoll(t, &te, 10);
                                 if ( te==t ) // conversion failed
-                                    val_a[i] = bcf_int32_missing;
+                                    val64_a[i] = bcf_int64_missing;
                                 for (t = te; *t && *t != ','; t++);
                             }
-                            if (n_val == 1) {
-                                bcf_enc_long1(str, v64);
-                            } else {
-                                bcf_enc_vint(str, n_val, val_a, -1);
-                            }
+			    bcf_enc_vlong(str, n_val, val64_a, -1);
                             if (strcmp(key, "END") == 0)
                                 v->rlen = v64 - v->pos;
                         } else if ((y>>4&0xf) == BCF_HT_REAL) {
@@ -2910,6 +2984,7 @@ int vcf_parse(kstring_t *s, const bcf_hdr_t *h, bcf1_t *v)
         } else if (i == 8) {// FORMAT
             free(flt_a);
             free(val_a);
+            free(val64_a);
             return vcf_parse_format(s, h, v, p, q) == 0 ? 0 : -2;
         }
     }
@@ -2920,6 +2995,8 @@ int vcf_parse(kstring_t *s, const bcf_hdr_t *h, bcf1_t *v)
  err:
     free(flt_a);
     free(val_a);
+    if(val64_a)
+	free(val64_a);
     return ret;
 }
 
@@ -3608,6 +3685,7 @@ int bcf_translate(const bcf_hdr_t *dst_hdr, bcf_hdr_t *src_hdr, bcf1_t *line)
         if ( dst_id<0 ) continue;
         line->d.info[i].key = dst_id;
         if ( !line->d.info[i].vptr ) continue;  // skip deleted
+	//TODO: don't understand what's going on here - not using bcf_translate currently
         int src_size = src_id>>7 ? ( src_id>>15 ? BCF_BT_INT32 : BCF_BT_INT16) : BCF_BT_INT8;
         int dst_size = dst_id>>7 ? ( dst_id>>15 ? BCF_BT_INT32 : BCF_BT_INT16) : BCF_BT_INT8;
         if ( src_size==dst_size )   // can overwrite
@@ -4034,13 +4112,7 @@ int bcf_update_info(const bcf_hdr_t *hdr, bcf1_t *line, const char *key, const v
             bcf_enc_vchar(&str, strlen((char*)values), (char*)values);
     }
     else if ( type==BCF_HT_LONG )
-    {
-        if (n != 1) {
-            hts_log_error("Only storing a single BCF_HT_LONG value is supported");
-            abort();
-        }
-        bcf_enc_long1(&str, *(int64_t *) values);
-    }
+	bcf_enc_vlong(&str, n, (const int64_t*)values, -1);
     else
     {
         hts_log_error("The type %d not implemented yet", type);
@@ -4502,6 +4574,14 @@ int bcf_get_info_values(const bcf_hdr_t *hdr, bcf1_t *line, const char *tag, voi
             } else {
                 BRANCH(int32_t, le_to_i32, p==bcf_int32_missing, p==bcf_int32_vector_end, *tmp=bcf_int32_missing, *tmp=p, int32_t); break;
             }
+        case BCF_BT_INT64:
+            if (type == BCF_HT_LONG) {
+                BRANCH(int64_t, le_to_i64, p==bcf_int64_missing, p==bcf_int64_vector_end, *tmp=bcf_int64_missing, *tmp=p, int64_t);
+            } else {
+		hts_log_error("Trying to get 32-bit int data from a field which contains 64 bit values");
+		return -2;
+            }
+            break;
         case BCF_BT_FLOAT: BRANCH(uint32_t, le_to_u32, p==bcf_float_missing, p==bcf_float_vector_end, bcf_float_set_missing(*tmp), bcf_float_set(tmp, p), float); break;
         default: hts_log_error("Unexpected type %d", info->type); return -2;
     }
@@ -4621,6 +4701,7 @@ int bcf_get_format_values(const bcf_hdr_t *hdr, bcf1_t *line, const char *tag, v
         case BCF_BT_INT8:  BRANCH(int8_t,  le_to_i8, p==bcf_int8_missing,  p==bcf_int8_vector_end,  *tmp=bcf_int32_missing, *tmp=bcf_int32_vector_end, *tmp=p, int32_t); break;
         case BCF_BT_INT16: BRANCH(int16_t, le_to_i16, p==bcf_int16_missing, p==bcf_int16_vector_end, *tmp=bcf_int32_missing, *tmp=bcf_int32_vector_end, *tmp=p, int32_t); break;
         case BCF_BT_INT32: BRANCH(int32_t, le_to_i32, p==bcf_int32_missing, p==bcf_int32_vector_end, *tmp=bcf_int32_missing, *tmp=bcf_int32_vector_end, *tmp=p, int32_t); break;
+        case BCF_BT_INT64: BRANCH(int64_t, le_to_i64, p==bcf_int64_missing, p==bcf_int64_vector_end, *tmp=bcf_int64_missing, *tmp=bcf_int64_vector_end, *tmp=p, int64_t); break;
         case BCF_BT_FLOAT: BRANCH(uint32_t, le_to_u32, p==bcf_float_missing, p==bcf_float_vector_end, bcf_float_set_missing(*tmp), bcf_float_set_vector_end(*tmp), bcf_float_set(tmp, p), float); break;
         default: hts_log_error("Unexpected type %d", fmt->type); exit(1);
     }
