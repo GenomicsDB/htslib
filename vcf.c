@@ -54,7 +54,7 @@ typedef khash_t(vdict) vdict_t;
 
 uint32_t bcf_float_missing    = 0x7F800001;
 uint32_t bcf_float_vector_end = 0x7F800002;
-uint8_t bcf_type_shift[] = { 0, 0, 1, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+uint8_t bcf_type_shift[] = { 0, 0, 1, 2, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 static bcf_idinfo_t bcf_idinfo_def = { .info = { 15, 15, 15 }, .hrec = { NULL, NULL, NULL}, .id = -1 };
 
 static const char *dump_char(char *buffer, char c)
@@ -4501,7 +4501,12 @@ int bcf_get_info_values(const bcf_hdr_t *hdr, bcf1_t *line, const char *tag, voi
 {
     int i, ret = -4, tag_id = bcf_hdr_id2int(hdr, BCF_DT_ID, tag);
     if ( !bcf_hdr_idinfo_exists(hdr,BCF_HL_INFO,tag_id) ) return -1;    // no such INFO field in the header
-    if ( bcf_hdr_id2type(hdr,BCF_HL_INFO,tag_id)!=(type & 0xff) ) return -2;     // expected different type
+    if((type & 0xff) == BCF_HT_LONG) {
+      const int ht_type_in_hdr =  bcf_hdr_id2type(hdr,BCF_HL_INFO,tag_id);
+      if(ht_type_in_hdr != BCF_HT_INT && ht_type_in_hdr != BCF_HT_LONG) return -2;     // expected different type
+    }
+    else
+      if ( bcf_hdr_id2type(hdr,BCF_HL_INFO,tag_id)!=(type & 0xff) ) return -2;     // expected different type
 
     if ( !(line->unpacked & BCF_UN_INFO) ) bcf_unpack(line, BCF_UN_INFO);
 
