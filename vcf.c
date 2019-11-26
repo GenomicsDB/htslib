@@ -3206,7 +3206,7 @@ int vcf_format(const bcf_hdr_t *h, const bcf1_t *v, kstring_t *s)
                     if (gt_i == i)
                         bcf_format_gt(f,j,s);
                     else
-                        bcf_fmt_array(s, f->n, f->type, f->p + j * f->size);
+                        bcf_fmt_array(s, f->n, f->type, f->p + (size_t)j * f->size);
                 }
                 if ( first ) kputc('.', s);
             }
