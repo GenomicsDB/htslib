@@ -1,6 +1,6 @@
 /*  thread_pool.c -- A pool of generic worker threads
 
-    Copyright (c) 2013-2017 Genome Research Ltd.
+    Copyright (c) 2013-2019 Genome Research Ltd.
 
     Author: James Bonfield <jkb@sanger.ac.uk>
 
@@ -23,6 +23,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.  */
 
 #ifndef TEST_MAIN
+#define HTS_BUILDING_LIBRARY // Enables HTSLIB_EXPORT, see htslib/hts_defs.h
 #include <config.h>
 #endif
 

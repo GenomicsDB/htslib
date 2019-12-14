@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 #
-#    Copyright (C) 2012-2013 Genome Research Ltd.
+#    Copyright (C) 2012-2019 Genome Research Ltd.
 #
 #    Author: Petr Danecek <pd3@sanger.ac.uk>
 #
@@ -644,6 +644,12 @@ sub test_view
     testv $opts, "./test_view $tv_args -z -p longrefs/longref.tmp.sam.gz -x longrefs/longref.tmp.sam.gz.csi.otf -m 14 longrefs/longref.sam";
     testv $opts, "./test_view $tv_args -p longrefs/longref.tmp.sam_ longrefs/longref.tmp.sam.gz";
     testv $opts, "./compare_sam.pl longrefs/longref.sam longrefs/longref.tmp.sam_";
+
+    # CRAM disabled for now as the positions cannot be 32-bit.  (These tests are useful for
+    # checking SQ headers only.)
+    # testv $opts, "./test_view $tv_args -C -o no_ref -p longrefs/longref.tmp.cram longrefs/longref.sam";
+    # testv $opts, "./test_view $tv_args -p longrefs/longref.tmp.sam_ longrefs/longref.tmp.cram";
+    # testv $opts, "./compare_sam.pl longrefs/longref.sam longrefs/longref.tmp.sam_";
 
     # Build index and compare with on-the-fly one made earlier.
     test_compare $opts, "$$opts{path}/test_index -c longrefs/longref.tmp.sam.gz", "longrefs/longref.tmp.sam.gz.csi.otf", "longrefs/longref.tmp.sam.gz.csi", gz=>1;

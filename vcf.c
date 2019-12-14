@@ -1,7 +1,7 @@
 /*  vcf.c -- VCF/BCF API functions.
 
     Copyright (C) 2012, 2013 Broad Institute.
-    Copyright (C) 2012-2017 Genome Research Ltd.
+    Copyright (C) 2012-2019 Genome Research Ltd.
     Portions copyright (C) 2014 Intel Corporation.
 
     Author: Heng Li <lh3@sanger.ac.uk>
@@ -24,6 +24,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.  */
 
+#define HTS_BUILDING_LIBRARY // Enables HTSLIB_EXPORT, see htslib/hts_defs.h
 #include <config.h>
 
 #include <stdio.h>
@@ -51,10 +52,15 @@ KHASH_MAP_INIT_STR(vdict, bcf_idinfo_t)
 typedef khash_t(vdict) vdict_t;
 
 #include "htslib/kseq.h"
-
+HTSLIB_EXPORT
 uint32_t bcf_float_missing    = 0x7F800001;
+
+HTSLIB_EXPORT
 uint32_t bcf_float_vector_end = 0x7F800002;
+
+HTSLIB_EXPORT
 uint8_t bcf_type_shift[] = { 0, 0, 1, 2, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
 static bcf_idinfo_t bcf_idinfo_def = { .info = { 15, 15, 15 }, .hrec = { NULL, NULL, NULL}, .id = -1 };
 
 static const char *dump_char(char *buffer, char c)
@@ -967,19 +973,26 @@ void bcf_hdr_remove(bcf_hdr_t *hdr, int type, const char *key)
 
 int bcf_hdr_printf(bcf_hdr_t *hdr, const char *fmt, ...)
 {
+    char tmp[256], *line = tmp;
     va_list ap;
     va_start(ap, fmt);
-    int n = vsnprintf(NULL, 0, fmt, ap) + 2;
+    int n = vsnprintf(line, sizeof(tmp), fmt, ap);
     va_end(ap);
 
-    char *line = (char*)malloc(n);
-    va_start(ap, fmt);
-    vsnprintf(line, n, fmt, ap);
-    va_end(ap);
+    if (n >= sizeof(tmp)) {
+        n++; // For trailing NUL
+        line = (char*)malloc(n);
+        if (!line)
+            return -1;
+
+        va_start(ap, fmt);
+        vsnprintf(line, n, fmt, ap);
+        va_end(ap);
+    }
 
     int ret = bcf_hdr_append(hdr, line);
 
-    free(line);
+    if (line != tmp) free(line);
     return ret;
 }
 
@@ -2612,11 +2625,20 @@ static int vcf_parse_format(kstring_t *s, const bcf_hdr_t *h, bcf1_t *v, char *p
                 if (z->is_gt) { // genotypes
                     int32_t is_phased = 0, *x = (int32_t*)(z->buf + z->size * m);
                     for (l = 0;; ++t) {
-                        if (*t == '.') ++t, x[l++] = is_phased;
-                        else x[l++] = (strtol(t, &t, 10) + 1) << 1 | is_phased;
-#if THOROUGH_SANITY_CHECKS
-                        assert( 0 );    // success of strtol,strtod not checked
-#endif
+                        if (*t == '.') {
+                            ++t, x[l++] = is_phased;
+                        } else {
+                            char *tt = t;
+                            errno = 0;
+                            long val = strtol(t, &t, 10);
+                            if (errno == ERANGE || val > (INT32_MAX>>1)-1 || val < 0) {
+                                hts_log_error("Unsupported value:'%s' (too large or negative)", tt);
+                                return -1;
+                            } else {
+                                x[l] = (val + 1) << 1 | is_phased;
+                                l++;
+                            }
+                        }
                         is_phased = (*t == '|');
                         if (*t != '|' && *t != '/') break;
                     }
@@ -2788,7 +2810,14 @@ int vcf_parse(kstring_t *s, const bcf_hdr_t *h, bcf1_t *v)
             }
             v->rid = kh_val(d, k).id;
         } else if (i == 1) { // POS
-            v->pos = strtoll(p, NULL, 10) - 1;
+            errno = 0;
+            v->pos = strtoll(p, NULL, 10);
+            if (errno == ERANGE || v->pos == INT64_MIN) {
+                hts_log_error("Position value '%s' is too large", p);
+                goto err;
+            } else {
+                v->pos -= 1;
+            }
         } else if (i == 2) { // ID
             if (strcmp(p, ".")) bcf_enc_vchar(str, q - p, p);
             else bcf_enc_size(str, 0, BCF_BT_CHAR);

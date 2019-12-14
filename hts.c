@@ -1,6 +1,6 @@
 /*  hts.c -- format-neutral I/O, indexing, and iterator API functions.
 
-    Copyright (C) 2008, 2009, 2012-2017 Genome Research Ltd.
+    Copyright (C) 2008, 2009, 2012-2019 Genome Research Ltd.
     Copyright (C) 2012, 2013 Broad Institute.
 
     Author: Heng Li <lh3@sanger.ac.uk>
@@ -23,6 +23,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.  */
 
+#define HTS_BUILDING_LIBRARY // Enables HTSLIB_EXPORT, see htslib/hts_defs.h
 #include <config.h>
 
 #include <zlib.h>
@@ -60,6 +61,7 @@ DEALINGS IN THE SOFTWARE.  */
 
 KHASH_INIT2(s2i,, kh_cstr_t, int64_t, 1, kh_str_hash_func, kh_str_hash_equal)
 
+HTSLIB_EXPORT
 int hts_verbose = HTS_LOG_WARNING;
 
 const char *hts_version()
@@ -67,6 +69,7 @@ const char *hts_version()
     return HTS_VERSION_TEXT;
 }
 
+HTSLIB_EXPORT
 const unsigned char seq_nt16_table[256] = {
     15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
     15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
@@ -87,8 +90,10 @@ const unsigned char seq_nt16_table[256] = {
     15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15
 };
 
+HTSLIB_EXPORT
 const char seq_nt16_str[] = "=ACMGRSVTWYHKDBN";
 
+HTSLIB_EXPORT
 const int seq_nt16_int[] = { 4, 0, 1, 4, 2, 4, 4, 4, 3, 4, 4, 4, 4, 4, 4, 4 };
 
 /**********************
@@ -236,7 +241,8 @@ secondline_is_bases(const unsigned char *u, const unsigned char *ulim)
 //     i: integer, s: strand sign, C: CIGAR, O: SAM optional field, Z: anything
 static int
 parse_tabbed_text(char *columns, int column_len,
-                  const unsigned char *u, const unsigned char *ulim)
+                  const unsigned char *u, const unsigned char *ulim,
+                  int *complete)
 {
     const char *str  = (const char *) u;
     const char *slim = (const char *) ulim;
@@ -245,6 +251,7 @@ parse_tabbed_text(char *columns, int column_len,
 
     enum { digit = 1, leading_sign = 2, cigar_operator = 4, other = 8 };
     unsigned seen = 0;
+    *complete = 0;
 
     for (s = str; s < slim; s++)
         if (*s >= ' ') {
@@ -273,7 +280,10 @@ parse_tabbed_text(char *columns, int column_len,
             else type = 'Z';
 
             columns[ncolumns++] = type;
-            if (*s != '\t' || ncolumns >= column_len - 1) break;
+            if (*s != '\t' || ncolumns >= column_len - 1) {
+                *complete = 1; // finished the line or more columns than needed
+                break;
+            }
 
             str = s + 1;
             seen = 0;
@@ -301,6 +311,7 @@ int hts_detect_format(hFILE *hfile, htsFormat *fmt)
 {
     char columns[24];
     unsigned char s[1024];
+    int complete = 0;
     ssize_t len = hpeek(hfile, s, 18);
     if (len < 0) return -1;
 
@@ -424,8 +435,13 @@ int hts_detect_format(hFILE *hfile, htsFormat *fmt)
         fmt->format = fastq_format;
         return 0;
     }
-    else if (parse_tabbed_text(columns, sizeof columns, s, &s[len]) > 0) {
-        if (colmatch(columns, "ZiZiiCZiiZZOOOOOOOOOOOOOOOOOOOO+") >= 11) {
+    else if (parse_tabbed_text(columns, sizeof columns, s,
+                               &s[len], &complete) > 0) {
+        // A complete SAM line is at least 11 columns.  On unmapped long reads may
+        // be missing two.  (On mapped long reads we must have an @ header so long
+        // CIGAR is irrelevant.)
+        if (colmatch(columns, "ZiZiiCZiiZZOOOOOOOOOOOOOOOOOOOO+")
+            >= 9 + 2*complete) {
             fmt->category = sequence_data;
             fmt->format = sam;
             fmt->version.major = 1, fmt->version.minor = -1;
@@ -2911,8 +2927,9 @@ static void *hts_memrchr(const void *s, int c, size_t n) {
  *            beg & end will be set.
  * On failure NULL is returned.
  */
-const char *hts_parse_region(const char *s, int *tid, int64_t *beg, int64_t *end,
-                             hts_name2id_f getid, void *hdr, int flags)
+const char *hts_parse_region(const char *s, int *tid, hts_pos_t *beg,
+                             hts_pos_t *end, hts_name2id_f getid, void *hdr,
+                             int flags)
 {
     if (!s || !tid || !beg || !end || !getid)
         return NULL;
@@ -3031,7 +3048,7 @@ const char *hts_parse_region(const char *s, int *tid, int64_t *beg, int64_t *end
     char *hyphen;
     *beg = hts_parse_decimal(colon+1, &hyphen, flags) - 1;
     if (*beg < 0) {
-        if (isdigit(*hyphen) || *hyphen == '\0' || *hyphen == ',') {
+        if (isdigit_c(*hyphen) || *hyphen == '\0' || *hyphen == ',') {
             // interpret chr:-100 as chr:1-100
             *end = *beg==-1 ? HTS_POS_MAX : -(*beg+1);
             *beg = 0;
@@ -3089,7 +3106,7 @@ const char *hts_parse_reg64(const char *s, hts_pos_t *beg, hts_pos_t *end)
 
 const char *hts_parse_reg(const char *s, int *beg, int *end)
 {
-    int64_t beg64 = 0, end64 = 0;
+    hts_pos_t beg64 = 0, end64 = 0;
     const char *colon = hts_parse_reg64(s, &beg64, &end64);
     if (beg64 > INT_MAX) {
         hts_log_error("Position %"PRId64" too large", beg64);
@@ -3364,8 +3381,8 @@ static int idx_test_and_fetch(const char *fn, const char **local_fn, int *local_
         const int buf_size = 1 * 1024 * 1024;
         int l;
         const char *p, *e;
-        // Ignore ?# params: eg any file.fmt?param=val
-        e = fn + strcspn(fn, "?#");
+        // Ignore ?# params: eg any file.fmt?param=val, except for S3 URLs
+        e = fn + ((strncmp(fn, "s3://", 5) && strncmp(fn, "s3+http://", 10) && strncmp(fn, "s3+https://", 11)) ? strcspn(fn, "?#") : strcspn(fn, "?"));
         // Find the previous slash from there.
         p = e;
         while (p > fn && *p != '/') p--;
@@ -3391,7 +3408,8 @@ static int idx_test_and_fetch(const char *fn, const char **local_fn, int *local_
             hts_log_error("Failed to detect format of index file '%s'", fn);
             goto fail;
         }
-        if (fmt.category != index_file || (fmt.format != bai &&  fmt.format != csi && fmt.format != tbi)) {
+        if (fmt.category != index_file || (fmt.format != bai &&  fmt.format != csi && fmt.format != tbi
+                && fmt.format != crai)) {
             hts_log_error("Format of index file '%s' is not supported", fn);
             goto fail;
         }
@@ -3465,13 +3483,14 @@ static int idx_test_and_fetch(const char *fn, const char **local_fn, int *local_
  * @param fnidx - pointer to the index file name placeholder
  * @return        1 for success, 0 for failure
  */
-static int idx_check_local(const char *fn, int fmt, char **fnidx) {
+int hts_idx_check_local(const char *fn, int fmt, char **fnidx) {
     int i, l_fn, l_ext;
     const char *fn_tmp = NULL;
     char *fnidx_tmp;
     char *csi_ext = ".csi";
     char *bai_ext = ".bai";
     char *tbi_ext = ".tbi";
+    char *crai_ext = ".crai";
 
     if (!fn)
         return 0;
@@ -3496,7 +3515,7 @@ static int idx_check_local(const char *fn, int fmt, char **fnidx) {
 
     if (!fn_tmp) return 0;
     hts_log_info("Using alignment file '%s'", fn_tmp);
-    l_fn = strlen(fn_tmp); l_ext = 4;
+    l_fn = strlen(fn_tmp); l_ext = 5;
     fnidx_tmp = (char*)calloc(l_fn + l_ext + 1, 1);
     if (!fnidx_tmp) return 0;
 
@@ -3535,7 +3554,7 @@ static int idx_check_local(const char *fn, int fmt, char **fnidx) {
                     break;
                 }
         }
-    } else { // Or .tbi
+    } else if (fmt == HTS_FMT_TBI) { // Or .tbi
         strcpy(fnidx_tmp, fn_tmp); strcpy(fnidx_tmp + l_fn, tbi_ext);
         if(stat(fnidx_tmp, &sbuf) == 0) {
             *fnidx = fnidx_tmp;
@@ -3544,6 +3563,22 @@ static int idx_check_local(const char *fn, int fmt, char **fnidx) {
             for (i = l_fn - 1; i > 0; --i)
                 if (fnidx_tmp[i] == '.') {
                     strcpy(fnidx_tmp + i, tbi_ext);
+                    if(stat(fnidx_tmp, &sbuf) == 0) {
+                        *fnidx = fnidx_tmp;
+                        return 1;
+                    }
+                    break;
+                }
+        }
+    } else if (fmt == HTS_FMT_CRAI) { // Or .crai
+        strcpy(fnidx_tmp, fn_tmp); strcpy(fnidx_tmp + l_fn, crai_ext);
+        if(stat(fnidx_tmp, &sbuf) == 0) {
+            *fnidx = fnidx_tmp;
+            return 1;
+        } else {
+            for (i = l_fn - 1; i > 0; --i)
+                if (fnidx_tmp[i] == '.') {
+                    strcpy(fnidx_tmp + i, crai_ext);
                     if(stat(fnidx_tmp, &sbuf) == 0) {
                         *fnidx = fnidx_tmp;
                         return 1;
@@ -3610,7 +3645,7 @@ static hts_idx_t *idx_find_and_load(const char *fn, int fmt, int flags)
         return idx;
     }
 
-    if (idx_check_local(fn, fmt, &fnidx) == 0 && hisremote(fn)) {
+    if (hts_idx_check_local(fn, fmt, &fnidx) == 0 && hisremote(fn)) {
         if (flags & HTS_IDX_SAVE_REMOTE) {
             fnidx = hts_idx_getfn(fn, ".csi");
             if (!fnidx) {
@@ -3700,6 +3735,7 @@ hts_idx_t *hts_idx_load3(const char *fn, const char *fnidx, int fmt, int flags)
  **********************/
 
 /* For use with hts_expand macros *only* */
+HTSLIB_EXPORT
 size_t hts_realloc_or_die(size_t n, size_t m, size_t m_sz, size_t size,
                           int clear, void **ptr, const char *func) {
     /* If new_m and size are both below this limit, multiplying them

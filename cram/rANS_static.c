@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 Genome Research Ltd.
+ * Copyright (c) 2014-2019 Genome Research Ltd.
  * Author(s): James Bonfield
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,6 +35,7 @@
  * Author: James Bonfield, Wellcome Trust Sanger Institute. 2014
  */
 
+#define HTS_BUILDING_LIBRARY // Enables HTSLIB_EXPORT, see htslib/hts_defs.h
 #include <config.h>
 
 #include <stdint.h>

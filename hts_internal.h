@@ -1,6 +1,6 @@
 /*  hts_internal.h -- internal functions; not part of the public API.
 
-    Copyright (C) 2015-2016 Genome Research Ltd.
+    Copyright (C) 2015-2016, 2018-2019 Genome Research Ltd.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -45,6 +45,15 @@ struct hts_json_token {
 };
 
 struct cram_fd;
+
+/*
+ * Check the existence of a local index file using part of the alignment file name.
+ * The order is alignment.bam.csi, alignment.csi, alignment.bam.bai, alignment.bai
+ * @param fn    - pointer to the file name
+ * @param fnidx - pointer to the index file name placeholder
+ * @return        1 for success, 0 for failure
+ */
+int hts_idx_check_local(const char *fn, int fmt, char **fnidx);
 
 // Retrieve the name of the index file and also download it, if it is remote
 char *hts_idx_getfn(const char *fn, const char *ext);

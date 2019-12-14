@@ -1,6 +1,6 @@
 /* test/test_bgzf.c -- bgzf unit tests
 
-   Copyright (C) 2017 Genome Research Ltd
+   Copyright (C) 2017, 2019 Genome Research Ltd
 
    Author: Robert Davies <rmd@sanger.ac.uk>
 
@@ -33,6 +33,7 @@ DEALINGS IN THE SOFTWARE.
 #include <sys/stat.h>
 #include <inttypes.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include "htslib/bgzf.h"
 #include "htslib/hfile.h"
 #include "hfile_internal.h"

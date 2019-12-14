@@ -44,9 +44,9 @@ endif
 ifdef PROFILE
   CFLAGS += -pg
 endif
-CFLAGS += -Wall -fPIC
+CFLAGS += -Wall -fPIC #-fvisibility=hidden
 EXTRA_CFLAGS_PIC = 
-LDFLAGS  =
+LDFLAGS  =  #-fvisibility=hidden
 LIBS     = $(htslib_default_libs)
 
 prefix      = /usr/local
@@ -59,6 +59,7 @@ datarootdir = $(prefix)/share
 mandir      = $(datarootdir)/man
 man1dir     = $(mandir)/man1
 man5dir     = $(mandir)/man5
+man7dir     = $(mandir)/man7
 pkgconfigdir= $(libdir)/pkgconfig
 
 MKDIR_P = mkdir -p
@@ -87,6 +88,7 @@ BUILT_TEST_PROGRAMS = \
 	test/test_kstring \
 	test/test_realn \
 	test/test-regidx \
+	test/test_str2int \
 	test/test_view \
 	test/test_index \
 	test/test-vcf-api \
@@ -114,11 +116,8 @@ include $(SOURCE_DIR)/htslib_vars.mk
 # into here.
 PACKAGE_VERSION := $(shell ./version.sh)
 
-# Increment this for each ABI breaking change until ABI version 3 becomes
-# stable
-TWO_TO_THREE_TRANSITION_COUNT = 12
-LIBHTS_SOVERSION = 2to3part$(TWO_TO_THREE_TRANSITION_COUNT)
-MACH_O_COMPATIBILITY_VERSION = 2.$(TWO_TO_THREE_TRANSITION_COUNT)
+LIBHTS_SOVERSION = 3
+MACH_O_COMPATIBILITY_VERSION = $(LIBHTS_SOVERSION)
 
 # $(NUMERIC_VERSION) is for items that must have a numeric X.Y.Z string
 # even if this is a dirty or untagged Git working tree.
@@ -201,11 +200,11 @@ cram_io_h = cram/cram_io.h $(cram_misc_h)
 cram_misc_h = cram/misc.h
 cram_os_h = cram/os.h $(htslib_hts_endian_h)
 cram_samtools_h = cram/cram_samtools.h $(htslib_sam_h)
-cram_structs_h = cram/cram_structs.h $(htslib_thread_pool_h) cram/string_alloc.h cram/mFILE.h $(htslib_khash_h)
+cram_structs_h = cram/cram_structs.h $(htslib_thread_pool_h) $(htslib_cram_h) cram/string_alloc.h cram/mFILE.h $(htslib_khash_h)
 cram_open_trace_file_h = cram/open_trace_file.h cram/mFILE.h
 bcf_sr_sort_h = bcf_sr_sort.h $(htslib_synced_bcf_reader_h) $(htslib_kbitset_h)
 header_h = header.h cram/string_alloc.h cram/pooled_alloc.h $(htslib_khash_h) $(htslib_kstring_h) $(htslib_sam_h)
-hfile_internal_h = hfile_internal.h $(htslib_hfile_h) $(textutils_internal_h)
+hfile_internal_h = hfile_internal.h $(htslib_hts_defs_h) $(htslib_hfile_h) $(textutils_internal_h)
 hts_internal_h = hts_internal.h $(htslib_hts_h) $(textutils_internal_h)
 sam_internal_h = sam_internal.h $(htslib_sam_h)
 textutils_internal_h = textutils_internal.h $(htslib_kstring_h)
@@ -262,6 +261,9 @@ lib-shared: cyghts-$(LIBHTS_SOVERSION).dll
 else ifeq "$(findstring MSYS,$(PLATFORM))" "MSYS"
 SHLIB_FLAVOUR = dll
 lib-shared: hts-$(LIBHTS_SOVERSION).dll
+else ifeq "$(findstring MINGW,$(PLATFORM))" "MINGW"
+SHLIB_FLAVOUR = dll
+lib-shared: hts-$(LIBHTS_SOVERSION).dll
 else
 SHLIB_FLAVOUR = so
 lib-shared: libhts.so
@@ -300,12 +302,16 @@ libhts.dylib: $(LIBHTS_OBJS)
 	$(CC) -dynamiclib -install_name $(libdir)/libhts.$(LIBHTS_SOVERSION).dylib -current_version $(NUMERIC_VERSION) -compatibility_version $(MACH_O_COMPATIBILITY_VERSION) $(LDFLAGS) -o $@ $(LIBHTS_OBJS) $(LIBS)
 	ln -sf $@ libhts.$(LIBHTS_SOVERSION).dylib
 
-cyghts-$(LIBHTS_SOVERSION).dll: $(LIBHTS_OBJS)
-	$(CC) -shared -Wl,--out-implib=libhts.dll.a -Wl,--export-all-symbols -Wl,--enable-auto-import $(LDFLAGS) -o $@ -Wl,--whole-archive $(LIBHTS_OBJS) -Wl,--no-whole-archive $(LIBS) -lpthread
+cyghts-$(LIBHTS_SOVERSION).dll libhts.dll.a: $(LIBHTS_OBJS)
+	$(CC) -shared -Wl,--out-implib=libhts.dll.a -Wl,--enable-auto-import $(LDFLAGS) -o $@ -Wl,--whole-archive $(LIBHTS_OBJS) -Wl,--no-whole-archive $(LIBS) -lpthread
 
-hts-$(LIBHTS_SOVERSION).dll: $(LIBHTS_OBJS)
-	$(CC) -shared -Wl,--out-implib=hts.dll.a -Wl,--export-all-symbols -Wl,--enable-auto-import $(LDFLAGS) -o $@ -Wl,--whole-archive $(LIBHTS_OBJS) -Wl,--no-whole-archive $(LIBS) -lpthread
+hts-$(LIBHTS_SOVERSION).dll hts.dll.a: $(LIBHTS_OBJS)
+	$(CC) -shared -Wl,--out-implib=hts.dll.a -Wl,--enable-auto-import -Wl,--exclude-all-symbols $(LDFLAGS) -o $@ -Wl,--whole-archive $(LIBHTS_OBJS) -Wl,--no-whole-archive $(LIBS) -lpthread
 
+# Target to allow htslib.mk to build all the object files before it
+# links the shared and static libraries.
+hts-object-files: $(LIBHTS_OBJS)
+	touch $@
 
 .pico.so:
 	$(CC) -shared -Wl,-E $(LDFLAGS) -o $@ $< $(LIBS) -lpthread
@@ -313,10 +319,10 @@ hts-$(LIBHTS_SOVERSION).dll: $(LIBHTS_OBJS)
 .o.bundle:
 	$(CC) -bundle -Wl,-undefined,dynamic_lookup $(LDFLAGS) -o $@ $< $(LIBS)
 
-.o.cygdll:
+%.cygdll: %.o libhts.dll.a
 	$(CC) -shared $(LDFLAGS) -o $@ $< libhts.dll.a $(LIBS)
 
-.o.dll:
+%.dll: %.o hts.dll.a
 	$(CC) -shared $(LDFLAGS) -o $@ $< hts.dll.a $(LIBS)
 
 
@@ -332,7 +338,7 @@ hfile_net.o hfile_net.pico: hfile_net.c config.h $(hfile_internal_h) $(htslib_kn
 hfile_s3_write.o hfile_s3_write.pico: hfile_s3_write.c config.h $(hfile_internal_h) $(htslib_hts_h) $(htslib_kstring_h) $(htslib_khash_h)
 hfile_s3.o hfile_s3.pico: hfile_s3.c config.h $(hfile_internal_h) $(htslib_hts_h) $(htslib_kstring_h)
 hts.o hts.pico: hts.c config.h $(htslib_hts_h) $(htslib_bgzf_h) $(cram_h) $(htslib_hfile_h) $(htslib_hts_endian_h) version.h $(hts_internal_h) $(hfile_internal_h) $(sam_internal_h) $(htslib_hts_os_h) $(htslib_khash_h) $(htslib_kseq_h) $(htslib_ksort_h) $(htslib_tbx_h)
-hts_os.o hts_os.pico: hts_os.c config.h os/rand.c
+hts_os.o hts_os.pico: hts_os.c config.h $(htslib_hts_defs_h) os/rand.c
 vcf.o vcf.pico: vcf.c config.h $(htslib_vcf_h) $(htslib_bgzf_h) $(htslib_tbx_h) $(htslib_hfile_h) $(hts_internal_h) $(htslib_khash_str2int_h) $(htslib_kstring_h) $(htslib_sam_h) $(htslib_khash_h) $(htslib_kseq_h) $(htslib_hts_endian_h)
 sam.o sam.pico: sam.c config.h $(htslib_hts_defs_h) $(htslib_sam_h) $(htslib_bgzf_h) $(cram_h) $(hts_internal_h) $(sam_internal_h) $(htslib_hfile_h) $(htslib_hts_endian_h) $(header_h) $(htslib_khash_h) $(htslib_kseq_h) $(htslib_kstring_h)
 tbx.o tbx.pico: tbx.c config.h $(htslib_tbx_h) $(htslib_bgzf_h) $(htslib_hts_endian_h) $(hts_internal_h) $(htslib_khash_h)
@@ -349,7 +355,7 @@ multipart.o multipart.pico: multipart.c config.h $(htslib_kstring_h) $(hts_inter
 plugin.o plugin.pico: plugin.c config.h $(hts_internal_h) $(htslib_kstring_h)
 probaln.o probaln.pico: probaln.c config.h $(htslib_hts_h)
 realn.o realn.pico: realn.c config.h $(htslib_hts_h) $(htslib_sam_h)
-textutils.o textutils.pico: textutils.c config.h $(htslib_hfile_h) $(htslib_kstring_h) $(hts_internal_h)
+textutils.o textutils.pico: textutils.c config.h $(htslib_hfile_h) $(htslib_kstring_h) $(htslib_sam_h) $(hts_internal_h)
 
 cram/cram_codecs.o cram/cram_codecs.pico: cram/cram_codecs.c config.h $(cram_h)
 cram/cram_decode.o cram/cram_decode.pico: cram/cram_decode.c config.h $(cram_h) $(cram_os_h) $(htslib_hts_h)
@@ -360,7 +366,7 @@ cram/cram_io.o cram/cram_io.pico: cram/cram_io.c config.h os/lzma_stub.h $(cram_
 cram/cram_samtools.o cram/cram_samtools.pico: cram/cram_samtools.c config.h $(cram_h) $(htslib_sam_h) $(sam_internal_h)
 cram/cram_stats.o cram/cram_stats.pico: cram/cram_stats.c config.h $(cram_h) $(cram_os_h)
 cram/mFILE.o cram/mFILE.pico: cram/mFILE.c config.h $(htslib_hts_log_h) $(cram_os_h) cram/mFILE.h
-cram/open_trace_file.o cram/open_trace_file.pico: cram/open_trace_file.c config.h $(cram_os_h) $(cram_open_trace_file_h) $(cram_misc_h) $(htslib_hfile_h) $(htslib_hts_log_h)
+cram/open_trace_file.o cram/open_trace_file.pico: cram/open_trace_file.c config.h $(cram_os_h) $(cram_open_trace_file_h) $(cram_misc_h) $(htslib_hfile_h) $(htslib_hts_log_h) $(htslib_hts_h)
 cram/pooled_alloc.o cram/pooled_alloc.pico: cram/pooled_alloc.c config.h cram/pooled_alloc.h $(cram_misc_h)
 cram/rANS_static.o cram/rANS_static.pico: cram/rANS_static.c config.h cram/rANS_static.h cram/rANS_byte.h
 cram/string_alloc.o cram/string_alloc.pico: cram/string_alloc.c config.h cram/string_alloc.h
@@ -395,6 +401,7 @@ maintainer-check:
 check test: $(BUILT_PROGRAMS) $(BUILT_TEST_PROGRAMS)
 	test/hts_endian
 	test/test_kstring
+	test/test_str2int
 	test/fieldarith test/fieldarith.sam
 	test/hfile
 	test/test_bgzf test/bgziptest.txt
@@ -438,6 +445,9 @@ test/test-regidx: test/test-regidx.o libhts.a
 test/test-parse-reg: test/test-parse-reg.o libhts.a
 	$(CC) $(LDFLAGS) -o $@ test/test-parse-reg.o libhts.a $(LIBS) -lpthread
 
+test/test_str2int: test/test_str2int.o
+	$(CC) $(LDFLAGS) -o $@ test/test_str2int.o
+
 test/test_view: test/test_view.o libhts.a
 	$(CC) $(LDFLAGS) -o $@ test/test_view.o libhts.a $(LIBS) -lpthread
 
@@ -461,12 +471,13 @@ test/fuzz/hts_open_fuzzer.o: test/fuzz/hts_open_fuzzer.c config.h $(htslib_hfile
 test/fieldarith.o: test/fieldarith.c config.h $(htslib_sam_h)
 test/hfile.o: test/hfile.c config.h $(htslib_hfile_h) $(htslib_hts_defs_h) $(htslib_kstring_h)
 test/pileup.o: test/pileup.c config.h $(htslib_sam_h) $(htslib_kstring_h)
-test/sam.o: test/sam.c config.h $(htslib_hts_defs_h) $(htslib_sam_h) $(htslib_faidx_h) $(htslib_kstring_h) $(htslib_hts_log_h)
+test/sam.o: test/sam.c config.h $(htslib_hts_defs_h) $(htslib_sam_h) $(htslib_faidx_h) $(htslib_khash_h) $(htslib_hts_log_h)
 test/test_bgzf.o: test/test_bgzf.c config.h $(htslib_bgzf_h) $(htslib_hfile_h) $(hfile_internal_h)
 test/test_kstring.o: test/test_kstring.c config.h $(htslib_kstring_h)
 test/test-parse-reg.o: test/test-parse-reg.c config.h $(htslib_hts_h) $(htslib_sam_h)
 test/test_realn.o: test/test_realn.c config.h $(htslib_hts_h) $(htslib_sam_h) $(htslib_faidx_h)
-test/test-regidx.o: test/test-regidx.c config.h $(htslib_regidx_h) $(hts_internal_h)
+test/test-regidx.o: test/test-regidx.c config.h $(htslib_kstring_h) $(htslib_regidx_h) $(htslib_hts_defs_h) $(textutils_internal_h)
+test/test_str2int.o: test/test_str2int.c config.h $(textutils_internal_h)
 test/test_view.o: test/test_view.c config.h $(cram_h) $(htslib_sam_h) $(htslib_vcf_h) $(htslib_hts_log_h)
 test/test_index.o: test/test_index.c config.h $(htslib_sam_h) $(htslib_vcf_h)
 test/test-vcf-api.o: test/test-vcf-api.c config.h $(htslib_hts_h) $(htslib_vcf_h) $(htslib_kstring_h) $(htslib_kseq_h)
@@ -496,6 +507,33 @@ test/thrash_threads7: test/thrash_threads7.o libhts.a
 	$(CC) $(LDFLAGS) -o $@ test/thrash_threads7.o libhts.a -lz $(LIBS) -lpthread
 test_thrash: $(BUILT_THRASH_PROGRAMS)
 
+# Test to ensure the functions in the header files are exported by the shared
+# library.  This currently works by comparing the output from ctags on
+# the headers with the list of functions exported by the shared library.
+# Note that functions marked as exported in the .c files and not the public
+# headers will be missed by this test.
+test-shlib-exports: header-exports.txt shlib-exports-$(SHLIB_FLAVOUR).txt
+	@echo "Checking shared library exports"
+	@if test ! -s header-exports.txt ; then echo "Error: header-exports.txt empty" ; false ; fi
+	@if test ! -s shlib-exports-$(SHLIB_FLAVOUR).txt ; then echo "Error: shlib-exports-$(SHLIB_FLAVOUR).txt empty" ; false ; fi
+	@! comm -23 header-exports.txt shlib-exports-$(SHLIB_FLAVOUR).txt | grep . || \
+	( echo "Error: Found unexported symbols (listed above)" ; false )
+
+# Extract symbols that should be exported from public headers using ctags
+# Filter out macros in htslib/hts_defs.h, and knet_win32_ functions that
+# aren't needed on non-Windows platforms.
+header-exports.txt: test/header_syms.pl htslib/*.h
+	test/header_syms.pl htslib/*.h | sort -u -o $@
+
+shlib-exports-so.txt: libhts.so
+	nm -D -g libhts.so | awk '$$2 == "T" { print $$3 }' | sort -u -o $@
+
+shlib-exports-dylib.txt: libhts.dylib
+	nm -Ug libhts.dylib | awk '$$2 == "T" { sub("^_", "", $$3); print $$3 }' | sort -u -o $@
+
+shlib-exports-dll.txt: hts.dll.a
+	nm -g hts.dll.a | awk '$$2 == "T" { print $$3 }' | sort -u -o $@
+
 install: libhts.a $(BUILT_PROGRAMS) $(BUILT_PLUGINS) installdirs install-$(SHLIB_FLAVOUR) install-pkgconfig
 	$(INSTALL_PROGRAM) $(BUILT_PROGRAMS) $(DESTDIR)$(bindir)
 	if test -n "$(BUILT_PLUGINS)"; then $(INSTALL_PROGRAM) $(BUILT_PLUGINS) $(DESTDIR)$(plugindir); fi
@@ -503,9 +541,10 @@ install: libhts.a $(BUILT_PROGRAMS) $(BUILT_PLUGINS) installdirs install-$(SHLIB
 	$(INSTALL_DATA) libhts.a $(DESTDIR)$(libdir)/libhts.a
 	$(INSTALL_MAN) bgzip.1 htsfile.1 tabix.1 $(DESTDIR)$(man1dir)
 	$(INSTALL_MAN) faidx.5 sam.5 vcf.5 $(DESTDIR)$(man5dir)
+	$(INSTALL_MAN) htslib-s3-plugin.7 $(DESTDIR)$(man7dir)
 
 installdirs:
-	$(INSTALL_DIR) $(DESTDIR)$(bindir) $(DESTDIR)$(includedir) $(DESTDIR)$(includedir)/htslib $(DESTDIR)$(libdir) $(DESTDIR)$(man1dir) $(DESTDIR)$(man5dir) $(DESTDIR)$(pkgconfigdir)
+	$(INSTALL_DIR) $(DESTDIR)$(bindir) $(DESTDIR)$(includedir) $(DESTDIR)$(includedir)/htslib $(DESTDIR)$(libdir) $(DESTDIR)$(man1dir) $(DESTDIR)$(man5dir) $(DESTDIR)$(man7dir) $(DESTDIR)$(pkgconfigdir)
 	if test -n "$(plugindir)"; then $(INSTALL_DIR) $(DESTDIR)$(plugindir); fi
 
 # After installation, the real file in $(libdir) will be libhts.so.X.Y.Z,
@@ -543,10 +582,11 @@ htslib-uninstalled.pc: htslib.pc.tmp
 
 
 testclean:
-	-rm -f test/*.tmp test/*.tmp.* test/longrefs/*.tmp.* test/tabix/*.tmp.* test/tabix/FAIL*
+	-rm -f test/*.tmp test/*.tmp.* test/longrefs/*.tmp.* test/tabix/*.tmp.* test/tabix/FAIL* header-exports.txt shlib-exports-$(SHLIB_FLAVOUR).txt
 
 mostlyclean: testclean
 	-rm -f *.o *.pico cram/*.o cram/*.pico test/*.o test/*.dSYM version.h
+	-rm -f hts-object-files
 
 clean: mostlyclean clean-$(SHLIB_FLAVOUR)
 	-rm -f libhts.a $(BUILT_PROGRAMS) $(BUILT_PLUGINS) $(BUILT_TEST_PROGRAMS) $(BUILT_THRASH_PROGRAMS)
