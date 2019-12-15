@@ -235,7 +235,7 @@ typedef struct {
     hts_pos_t rlen; // length of REF
     int32_t rid;  // CHROM
     float qual;   // QUAL
-    int32_t m_end_point; //END - must be after QUAL due to a memcpy() in vcf.c
+    hts_pos_t m_end_point; //END - must be after QUAL due to a memcpy() in vcf.c
     uint32_t n_info:16, n_allele:16;
     uint32_t n_fmt:8, n_sample:24;
     kstring_t shared, indiv;
