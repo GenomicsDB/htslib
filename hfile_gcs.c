@@ -37,6 +37,34 @@ DEALINGS IN THE SOFTWARE.  */
 #include "version.h"
 #endif
 
+static const char *
+get_gcs_access_token()
+{
+    // TODO Find the access token in a more standard way
+    char *token = getenv("GCS_OAUTH_TOKEN");
+    if (token) {
+        return token;
+    }
+
+    // Get access token using GOOGLE_APPLICATION_CREDENTIALS env and gcloud auth
+    char access_token[512];
+    token = &access_token[0];
+    int token_size = sizeof access_token;
+    memset(token, 0, token_size);
+    // Check if there is a service account env set
+    const char* service_account = getenv("GOOGLE_APPLICATION_CREDENTIALS");
+    kstring_t text = { 0, 0, NULL };
+    if (service_account && strlen(service_account) > 0) {
+        FILE *fp = popen("gcloud auth application-default print-access-token", "r");
+        if (fp) {
+            kgetline(&text, (kgets_func *) fgets, fp);
+            pclose(fp);
+        }
+    }
+    setenv("GCS_OAUTH_TOKEN", text.s, 1);
+    return getenv("GCS_OAUTH_TOKEN");
+}
+
 static hFILE *
 gcs_rewrite(const char *gsurl, const char *mode, int mode_has_colon,
             va_list *argsp)
@@ -72,8 +100,7 @@ gcs_rewrite(const char *gsurl, const char *mode, int mode_has_colon,
     if (hts_verbose >= 8)
         fprintf(stderr, "[M::gcs_open] rewrote URL as %s\n", url.s);
 
-    // TODO Find the access token in a more standard way
-    access_token = getenv("GCS_OAUTH_TOKEN");
+    access_token = get_gcs_access_token();
 
     if (access_token) {
         kputs("Authorization: Bearer ", &auth_hdr);
