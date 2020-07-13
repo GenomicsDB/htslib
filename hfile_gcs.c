@@ -54,14 +54,15 @@ get_gcs_access_token()
     // Check if there is a service account env set
     const char* service_account = getenv("GOOGLE_APPLICATION_CREDENTIALS");
     if (service_account && strlen(service_account) > 0) {
-        kstring_t text = { 0, 0, NULL };
         FILE *fp = popen("gcloud auth application-default print-access-token", "r");
         if (fp) {
-            kgetline(&text, (kgets_func *) fgets, fp);
-            // setenv for later accesses to GCS_OAUTH_TOKEN
-            setenv("GCS_OAUTH_TOKEN", text.s, 1);
-            pclose(fp);
-            return text.s;
+            kstring_t text = { 0, 0, NULL };
+            if (!kgetline(&text, (kgets_func *) fgets, fp)) {
+                // setenv for later accesses to GCS_OAUTH_TOKEN
+                setenv("GCS_OAUTH_TOKEN", text.s, 1);
+                pclose(fp);
+                return text.s;
+            }
         }
     }
     return NULL;
