@@ -29,6 +29,9 @@ DEALINGS IN THE SOFTWARE.  */
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
+#include <pthread.h>
+#include <assert.h>
 
 #include "htslib/hts.h"
 #include "htslib/kstring.h"
@@ -36,6 +39,10 @@ DEALINGS IN THE SOFTWARE.  */
 #ifdef ENABLE_PLUGINS
 #include "version.h"
 #endif
+
+// Use mutex to allow only one thread to get/set gcs_access_token
+static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+static time_t last_access = 0;
 
 static const char *
 get_gcs_access_token()
@@ -46,26 +53,41 @@ get_gcs_access_token()
         return token;
     }
 
-    // Get access token using GOOGLE_APPLICATION_CREDENTIALS env and gcloud auth
-    char access_token[512];
-    token = &access_token[0];
-    int token_size = sizeof access_token;
-    memset(token, 0, token_size);
-    // Check if there is a service account env set
-    const char* service_account = getenv("GOOGLE_APPLICATION_CREDENTIALS");
-    if (service_account && strlen(service_account) > 0) {
-        FILE *fp = popen("gcloud auth application-default print-access-token", "r");
-        if (fp) {
-            kstring_t text = { 0, 0, NULL };
-            if (!kgetline(&text, (kgets_func *) fgets, fp)) {
-                // setenv for later accesses to GCS_OAUTH_TOKEN
-                setenv("GCS_OAUTH_TOKEN", text.s, 1);
-                pclose(fp);
-                return text.s;
+    if (getenv("HTS_AUTH_LOCATION")) {
+      // Allow hfile_libcurl to handle this
+      return NULL;
+    }
+
+    // Try the service account route with the GOOGLE_APPLICATION_CREDENTIALS env.
+    // See max token sizes outlined in https://developers.google.com/identity/protocols/oauth2.
+    // There is no support for refresh tokens in service accounts. See token expiration explained in
+    // https://developers.google.com/identity/protocols/oauth2/service-account. Access tokens are
+    // set to expire in 3600 seconds. Take off 60 seconds to allow for clock skew and slow servers as
+    // used in hfile_libcurl.c for AUTH_REFRESH_EARLY_SECS.
+#define MAX_GCS_TOKEN_SIZE 2048
+#define MAX_SERVICE_TOKEN_DURATION 3540
+
+    static char gcs_access_token[MAX_GCS_TOKEN_SIZE];
+    if (getenv("GOOGLE_APPLICATION_CREDENTIALS")) {
+        pthread_mutex_lock(&lock);
+        if (!last_access || (last_access &&  difftime(time(NULL), last_access)  > MAX_SERVICE_TOKEN_DURATION)) {
+            FILE *fp = popen("gcloud auth application-default print-access-token", "r");
+            if (fp) {
+                memset(&gcs_access_token[0], 0, sizeof gcs_access_token);
+                kstring_t text = { 0, 0, NULL };
+                if (!kgetline(&text, (kgets_func *) fgets, fp)) {
+                    pclose(fp);
+                    assert(strlen(text.s) <= MAX_GCS_TOKEN_SIZE);
+                    strncpy(gcs_access_token, text.s, MAX_GCS_TOKEN_SIZE);
+                    free(text.s);
+                }
+                last_access = time(NULL);
             }
         }
+        pthread_mutex_unlock(&lock);
     }
-    return NULL;
+
+    if (strlen(gcs_access_token) > 0) return &gcs_access_token[0]; else return NULL;
 }
 
 static hFILE *
