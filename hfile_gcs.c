@@ -44,18 +44,26 @@ DEALINGS IN THE SOFTWARE.  */
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static time_t last_access = 0;
 
-static const char *
-get_gcs_access_token()
+static void construct_auth_hdr(const char *access_token, kstring_t *auth_hdr) {
+    if (access_token && strlen(access_token) > 0) {
+        kputs("Authorization: Bearer ", auth_hdr);
+        kputs(access_token, auth_hdr);
+    }
+}
+
+static void
+construct_auth_hdr_with_access_token(kstring_t *auth_hdr)
 {
     // TODO Find the access token in a more standard way
     char *token = getenv("GCS_OAUTH_TOKEN");
     if (token) {
-        return token;
+        construct_auth_hdr(token, auth_hdr);
+        return;
     }
 
+    // Allow hfile_libcurl to handle this
     if (getenv("HTS_AUTH_LOCATION")) {
-      // Allow hfile_libcurl to handle this
-      return NULL;
+        return;
     }
 
     // Try the service account route with the GOOGLE_APPLICATION_CREDENTIALS env.
@@ -71,30 +79,29 @@ get_gcs_access_token()
     if (getenv("GOOGLE_APPLICATION_CREDENTIALS")) {
         pthread_mutex_lock(&lock);
         if (!last_access || (last_access &&  difftime(time(NULL), last_access)  > MAX_SERVICE_TOKEN_DURATION)) {
+            memset(&gcs_access_token[0], 0, sizeof gcs_access_token);
             FILE *fp = popen("gcloud auth application-default print-access-token", "r");
             if (fp) {
-                memset(&gcs_access_token[0], 0, sizeof gcs_access_token);
                 kstring_t text = { 0, 0, NULL };
                 if (!kgetline(&text, (kgets_func *) fgets, fp)) {
                     pclose(fp);
-                    assert(strlen(text.s) <= MAX_GCS_TOKEN_SIZE);
+                    assert(text.l <= MAX_GCS_TOKEN_SIZE);
                     strncpy(gcs_access_token, text.s, MAX_GCS_TOKEN_SIZE);
                     free(text.s);
                 }
                 last_access = time(NULL);
             }
         }
+        construct_auth_hdr(gcs_access_token, auth_hdr);
         pthread_mutex_unlock(&lock);
     }
-
-    if (strlen(gcs_access_token) > 0) return &gcs_access_token[0]; else return NULL;
 }
 
 static hFILE *
 gcs_rewrite(const char *gsurl, const char *mode, int mode_has_colon,
             va_list *argsp)
 {
-    const char *bucket, *path, *access_token;
+    const char *bucket, *path;
     kstring_t mode_colon = { 0, 0, NULL };
     kstring_t url = { 0, 0, NULL };
     kstring_t auth_hdr = { 0, 0, NULL };
@@ -125,12 +132,7 @@ gcs_rewrite(const char *gsurl, const char *mode, int mode_has_colon,
     if (hts_verbose >= 8)
         fprintf(stderr, "[M::gcs_open] rewrote URL as %s\n", url.s);
 
-    access_token = get_gcs_access_token();
-
-    if (access_token) {
-        kputs("Authorization: Bearer ", &auth_hdr);
-        kputs(access_token, &auth_hdr);
-    }
+    construct_auth_hdr_with_access_token(&auth_hdr);
 
     if (argsp || auth_hdr.l > 0 || mode_has_colon) {
         if (! mode_has_colon) {
