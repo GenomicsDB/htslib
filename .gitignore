@@ -4,6 +4,7 @@
 *.dSYM
 *.exe
 *.dll
+*.dll.a
 *.pc.tmp
 *-uninstalled.pc
 /version.h
@@ -22,6 +23,7 @@ hfile_*.cygdll
 hfile_*.dll
 hfile_*.so
 
+hts-object-files
 htslib_static.mk
 
 cyg*.dll
@@ -31,6 +33,9 @@ lib*.dylib
 lib*.so
 lib*.so.*
 
+header-exports.txt
+shlib-exports-*.txt
+
 /bgzip
 /htsfile
 /tabix
@@ -39,6 +44,7 @@ lib*.so.*
 /test/hts_endian
 /test/longrefs/*.tmp.*
 /test/pileup
+/test/plugins-dlhts
 /test/sam
 /test/tabix/*.tmp.*
 /test/tabix/FAIL*
@@ -50,6 +56,7 @@ lib*.so.*
 /test/test-parse-reg
 /test/test_realn
 /test/test-regidx
+/test/test_str2int
 /test/test-vcf-api
 /test/test-vcf-sweep
 /test/test_view

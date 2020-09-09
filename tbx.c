@@ -1,6 +1,6 @@
 /*  tbx.c -- tabix API functions.
 
-    Copyright (C) 2009, 2010, 2012-2015, 2017 Genome Research Ltd.
+    Copyright (C) 2009, 2010, 2012-2015, 2017-2020 Genome Research Ltd.
     Copyright (C) 2010-2012 Broad Institute.
 
     Author: Heng Li <lh3@sanger.ac.uk>
@@ -23,6 +23,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.  */
 
+#define HTS_BUILDING_LIBRARY // Enables HTSLIB_EXPORT, see htslib/hts_defs.h
 #include <config.h>
 
 #include <stdlib.h>
@@ -38,10 +39,19 @@ DEALINGS IN THE SOFTWARE.  */
 #include "htslib/khash.h"
 KHASH_DECLARE(s2i, kh_cstr_t, int64_t)
 
+HTSLIB_EXPORT
 const tbx_conf_t tbx_conf_gff = { 0, 1, 4, 5, '#', 0 };
+
+HTSLIB_EXPORT
 const tbx_conf_t tbx_conf_bed = { TBX_UCSC, 1, 2, 3, '#', 0 };
+
+HTSLIB_EXPORT
 const tbx_conf_t tbx_conf_psltbl = { TBX_UCSC, 15, 17, 18, '#', 0 };
+
+HTSLIB_EXPORT
 const tbx_conf_t tbx_conf_sam = { TBX_SAM, 3, 4, 0, '@', 0 };
+
+HTSLIB_EXPORT
 const tbx_conf_t tbx_conf_vcf = { TBX_VCF, 1, 2, 0, '#', 0 };
 
 typedef struct {
@@ -131,7 +141,24 @@ int tbx_parse1(const tbx_conf_t *conf, int len, char *line, tbx_intv_t *intv)
                             s = strstr(line + b, ";END=");
                             if (s) s += 5;
                         }
-                        if (s) intv->end = strtoll(s, &s, 0);
+                        if (s && *s != '.') {
+                            long long end = strtoll(s, &s, 0);
+                            if (end <= intv->beg) {
+                                static int reported = 0;
+                                if (!reported) {
+                                    int l = intv->ss ? (int) (intv->se - intv->ss) : 0;
+                                    hts_log_warning("VCF INFO/END=%lld is smaller than POS at %.*s:%"PRIhts_pos"\n"
+                                                    "This tag will be ignored. "
+                                                    "Note: only one invalid END tag will be reported.",
+                                                    end, l >= 0 ? l : 0,
+                                                    intv->ss ? intv->ss : "",
+                                                    intv->beg);
+                                    reported = 1;
+                                }
+                            } else {
+                                intv->end = end;
+                            }
+                        }
                         line[i] = c;
                     }
                 }
@@ -368,6 +395,8 @@ static tbx_t *index_load(const char *fn, const char *fnidx, int flags)
     char *nm, *p;
     uint32_t l_meta, l_nm;
     tbx = (tbx_t*)calloc(1, sizeof(tbx_t));
+    if (!tbx)
+        return NULL;
     tbx->idx = hts_idx_load3(fn, fnidx, HTS_FMT_TBI, flags);
     if ( !tbx->idx )
     {

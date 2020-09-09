@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2010-2013 Genome Research Ltd.
+Copyright (c) 2010-2013, 2018 Genome Research Ltd.
 Author: James Bonfield <jkb@sanger.ac.uk>
 
 Redistribution and use in source and binary forms, with or without
@@ -56,7 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #define bam_reg2bin(beg,end) hts_reg2bin((beg),(end),14,5)
 
-#include "htslib/sam.h"
+#include "../htslib/sam.h"
 
 enum cigar_op {
     BAM_CMATCH_=BAM_CMATCH,
