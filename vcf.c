@@ -3062,36 +3062,14 @@ static int vcf_parse_info(kstring_t *str, const bcf_hdr_t *h, bcf1_t *v, char *p
                 if(val64_a == 0) {
                   hts_log_error("Failed to allocate memory for 64-bit int buffer in vcf_parse_info at %s:%"PRIhts_pos, bcf_seqname_safe(h,v), v->pos+1);
                   v->errcode |= BCF_ERR_LIMITS;
-                  return -1
+                  return -1;
                 }
                 max_n_val = n_val;
             }
             if (((y>>4&0xf) == BCF_HT_INT) || ((y>>4&0xf) == BCF_HT_LONG)) {
-              // Allow first value only to be 64 bit
-              // (for large END value)
-              overflow = 0;
-              long long int tmp_val = hts_str2int(t, &te, sizeof(tmp_val)*CHAR_BIT, &overflow);
-              if ( te==val ) { // conversion failed
-                tmp_val = bcf_int64_missing;
-              } else {
-                if ( overflow || tmp_val<BCF_MIN_BT_INT64 || tmp_val>BCF_MAX_BT_INT64 )
-                {
-                  if ( !extreme_int_warned )
-                  {
-                    hts_log_warning("Extreme INFO/%s value encountered and set to missing at %s:%"PRIhts_pos,key,bcf_seqname_safe(h,v), v->pos+1);
-                    extreme_int_warned = 1;
-                  }
-                  tmp_val = bcf_int64_missing;
-                }
-              }
-              if(n_val > 0)
-                val64_a[0] = tmp_val;
-              for (t = te; *t && *t != ','; t++);
-              if (*t == ',') ++t;
-              for (i = 1; i < n_val; ++i, ++t)
-              {
+              for (i = 0, t=val; i < n_val; ++i, ++t) {
                 overflow = 0;
-                long long int tmp_val = hts_str2int(t, &te, sizeof(tmp_val)*CHAR_BIT, &overflow);
+                long int tmp_val = hts_str2int(t, &te, sizeof(tmp_val)*CHAR_BIT, &overflow);
                 if ( te==t ) // conversion failed
                   tmp_val = bcf_int64_missing;
                 else
@@ -3111,21 +3089,22 @@ static int vcf_parse_info(kstring_t *str, const bcf_hdr_t *h, bcf1_t *v, char *p
               if(enc_status != 0) {
                 if ( !extreme_int_warned )
                 {
-                  hts_log_warning("Memory allocation of extreme INFO/%s value encountered at %s:%"PRIhts_pos,key,bcf_seqname_safe(h,v), v->pos+1);
+                  hts_log_warning("Memory allocation or extreme INFO/%s value encountered at %s:%"PRIhts_pos,key,bcf_seqname_safe(h,v), v->pos+1);
                   extreme_int_warned = 1;
                 }
               }
-              if (strcmp(key, "END") == 0) {
-                if ( tmp_val <= v->pos ) //VCF is 1 based, v->pos is 0 based
+              if (n_val == 1 && strcmp(key, "END") == 0) {
+                const long int end_val = val64_a[0];
+                if (end_val <= v->pos ) //VCF is 1 based, v->pos is 0 based
                 {
                   if ( !negative_rlen_warned )
                   {
-                    hts_log_warning("INFO/END=%"PRIhts_pos" is smaller than POS at %s:%"PRIhts_pos,val1,bcf_seqname_safe(h,v),v->pos+1);
+                    hts_log_warning("INFO/END=%"PRIhts_pos" is smaller than POS at %s:%"PRIhts_pos,end_val,bcf_seqname_safe(h,v),v->pos+1);
                     negative_rlen_warned = 1;
                   }
                 }
                 else
-                  v->rlen = tmp_val - v->pos;
+                  v->rlen = end_val - 1 - v->pos;
               }
             }
             else if ((y>>4&0xf) == BCF_HT_REAL) {
