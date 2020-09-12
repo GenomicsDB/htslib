@@ -1441,7 +1441,7 @@ static int bcf_dec_typed_int1_safe(uint8_t *p, uint8_t *end, uint8_t **q,
     if (t == BCF_BT_INT8) {
         *val = *(int8_t *) p++;
     } else {
-        if (end - p < bcf_type_shift[t]) return -1;
+        if (end - p < (1<<bcf_type_shift[t])) return -1;
         if (t == BCF_BT_INT16) {
             *val = le_to_i16(p);
             p += 2;
@@ -1578,7 +1578,7 @@ static int bcf_record_check(const bcf_hdr_t *hdr, bcf1_t *rec) {
 
     // Check INFO
     reports = 0;
-    bcf_idpair_t *id_tmp = hdr->id[BCF_DT_ID];
+    bcf_idpair_t *id_tmp = hdr ? hdr->id[BCF_DT_ID] : NULL;
     for (i = 0; i < rec->n_info; i++) {
         int32_t key = -1;
         if (bcf_dec_typed_int1_safe(ptr, end, &ptr, &key) != 0) goto bad_shared;
