@@ -1,6 +1,6 @@
 /*  test/sam.c -- SAM/BAM/CRAM API test cases.
 
-    Copyright (C) 2014-2017 Genome Research Ltd.
+    Copyright (C) 2014-2020 Genome Research Ltd.
 
     Author: John Marshall <jm18@sanger.ac.uk>
 
@@ -35,14 +35,14 @@ DEALINGS IN THE SOFTWARE.  */
 #include <unistd.h>
 
 // Suppress message for faidx_fetch_nseq(), which we're intentionally testing
-#include "htslib/hts_defs.h"
+#include "../htslib/hts_defs.h"
 #undef HTS_DEPRECATED
 #define HTS_DEPRECATED(message)
 
-#include "htslib/sam.h"
-#include "htslib/faidx.h"
-#include "htslib/khash.h"
-#include "htslib/hts_log.h"
+#include "../htslib/sam.h"
+#include "../htslib/faidx.h"
+#include "../htslib/khash.h"
+#include "../htslib/hts_log.h"
 
 KHASH_SET_INIT_STR(keep)
 typedef khash_t(keep) *keephash_t;
@@ -110,6 +110,7 @@ static void check_int_B_array(bam1_t *aln, char *tag,
 #define E  2.718281828459045
 #define HELLO "Hello, world!"
 #define NEW_HELLO "Yo, dude"
+#define NEW_HELLO2 "Bonjour, tout le monde"
 #define BEEF "DEADBEEF"
 
 #define str(x) #x
@@ -239,7 +240,7 @@ static int aux_fields1(void)
 ;
 
     // Canonical form of the alignment records above, as output by sam_format1()
-    static const char r1[] = "r1\t0\tone\t500\t20\t8M\t*\t0\t0\tATGCATGC\tqqqqqqqq\tXi:i:37\tXf:f:3.14159\tXd:d:2.71828\tXZ:Z:" NEW_HELLO "\tXH:H:" BEEF "\tXB:B:c,-2,0,2\tB0:B:i,-2147483648,-1,0,1,2147483647\tB1:B:I,0,1,2147483648,4294967295\tB2:B:s,-32768,-1,0,1,32767\tB3:B:S,0,1,32768,65535\tB4:B:c,-128,-1,0,1,127\tB5:B:C,0,1,127,255\tBf:B:f,-3.14159,2.71828\tZZ:i:1000000\tF2:f:9.8765\tY1:i:-2147483648\tY2:i:-2147483647\tY3:i:-1\tY4:i:0\tY5:i:1\tY6:i:2147483647\tY7:i:2147483648\tY8:i:4294967295\tN0:i:-1234\tN1:i:1234\tN2:i:-2\tN3:i:3\tF1:f:4.5678\tN4:B:S,65535,32768,1,0\tN5:i:4242";
+    static const char r1[] = "r1\t0\tone\t500\t20\t8M\t*\t0\t0\tATGCATGC\tqqqqqqqq\tXi:i:37\tXf:f:3.14159\tXd:d:2.71828\tXZ:Z:" NEW_HELLO "\tXH:H:" BEEF "\tXB:B:c,-2,0,2\tB0:B:i,-2147483648,-1,0,1,2147483647\tB1:B:I,0,1,2147483648,4294967295\tB2:B:s,-32768,-1,0,1,32767\tB3:B:S,0,1,32768,65535\tB4:B:c,-128,-1,0,1,127\tB5:B:C,0,1,127,255\tBf:B:f,-3.14159,2.71828\tZZ:i:1000000\tF2:f:9.8765\tY1:i:-2147483648\tY2:i:-2147483647\tY3:i:-1\tY4:i:0\tY5:i:1\tY6:i:2147483647\tY7:i:2147483648\tY8:i:4294967295\tN0:i:-1234\tN1:i:1234\tN2:i:-2\tN3:i:3\tF1:f:4.5678\tN4:B:S,65535,32768,1,0\tN5:i:4242\tZa:Z:" HELLO "\tZb:Z:" NEW_HELLO2;
     static const char r2[] = "r2\t141\t*\t0\t0\t*\t*\t0\t0\tATGC\tqqqq";
 
     samFile *in = sam_open(sam, "r");
@@ -270,6 +271,7 @@ static int aux_fields1(void)
     uint32_t uval = 1234;
     float f1 = 4.5678;
     float f2 = 9.8765;
+    const char *hose = "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO";
 
     size_t nvals, i;
 
@@ -296,7 +298,20 @@ static int aux_fields1(void)
         bam_aux_update_str(aln,"XZ",strlen(NEW_HELLO)+1,NEW_HELLO);
         if ((p = check_bam_aux_get(aln, "XZ", 'Z')) && strcmp(bam_aux2Z(p), NEW_HELLO) != 0)
             fail("XZ field is \"%s\", expected \"%s\"", bam_aux2Z(p), NEW_HELLO);
+        if (!check_bam_aux_get(aln, "XH", 'H'))
+            fail("bam_aux_update_str(,,strlen(NEW_HELLO)+1,NEW_HELLO) corrupted XH tag");
 
+        bam_aux_update_str(aln,"XZ",strlen(NEW_HELLO2), NEW_HELLO2);
+        if ((p = check_bam_aux_get(aln, "XZ", 'Z')) && strcmp(bam_aux2Z(p), NEW_HELLO2) != 0)
+            fail("XZ field is \"%s\", expected \"%s\"", bam_aux2Z(p), NEW_HELLO2);
+        if (!check_bam_aux_get(aln, "XH", 'H'))
+            fail("bam_aux_update_str(,,strlen(NEW_HELLO2),NEW_HELLO2) corrupted XH tag");
+
+        bam_aux_update_str(aln,"XZ",-1,NEW_HELLO);
+        if ((p = check_bam_aux_get(aln, "XZ", 'Z')) && strcmp(bam_aux2Z(p), NEW_HELLO) != 0)
+            fail("XZ field is \"%s\", expected \"%s\"", bam_aux2Z(p), NEW_HELLO);
+        if (!check_bam_aux_get(aln, "XH", 'H'))
+            fail("bam_aux_update_str(,,-1,NEW_HELLO) corrupted XH tag");
 
         if ((p = check_bam_aux_get(aln, "XH", 'H')) && strcmp(bam_aux2Z(p), BEEF) != 0)
             fail("XH field is \"%s\", expected \"%s\"", bam_aux2Z(p), BEEF);
@@ -425,7 +440,7 @@ static int aux_fields1(void)
         // append a new array
         i = test_update_array(aln, "N4", 'c', NELE(n4v1), n4v1, "\0\0", 0, 0);
 
-        // Add a sentinal to check resizes work
+        // Add a sentinel to check resizes work
         if (i == 0) i = test_update_int(aln, "N5", 4242, 'S', "\0\0", 0, 0);
 
         // alter the array tag a few times
@@ -447,6 +462,24 @@ static int aux_fields1(void)
         if (i == 0)
             i = test_update_array(aln, "N4", 'S', NELE(n4v7), n4v7,
                                   "N5", 4242, 'S');
+
+        // Append a couple of strings
+        // First add and remove some data so that failure to NUL-terminate will
+        // be spotted
+        bam_aux_update_str(aln,"oo",strlen(hose) + 1,hose);
+        if ((p = check_bam_aux_get(aln, "oo", 'Z')) && strcmp(bam_aux2Z(p), hose) != 0)
+            fail("oo field is \"%s\", expected \"%s\"", bam_aux2Z(p), hose);
+        if (p) bam_aux_del(aln, p);
+        if (bam_aux_get(aln, "oo"))
+            fail("oo field wasn't deleted correctly");
+
+        bam_aux_update_str(aln,"Za",strlen(HELLO),HELLO);
+        if ((p = check_bam_aux_get(aln, "Za", 'Z')) && strcmp(bam_aux2Z(p), HELLO) != 0)
+            fail("Za field is \"%s\", expected \"%s\"", bam_aux2Z(p), HELLO);
+
+        bam_aux_update_str(aln,"Zb",strlen(NEW_HELLO2)+1,NEW_HELLO2);
+        if ((p = check_bam_aux_get(aln, "Zb", 'Z')) && strcmp(bam_aux2Z(p), NEW_HELLO2) != 0)
+            fail("Zb field is \"%s\", expected \"%s\"", bam_aux2Z(p), NEW_HELLO2);
 
         if (sam_format1(header, aln, &ks) < 0)
             fail("can't format record");
@@ -908,7 +941,8 @@ static void test_header_pg_lines(void) {
     hts_set_log_level(old_log_level);
     // End failing tests
 
-    if (strcmp(text, expected) != 0) {
+    text = sam_hdr_str(header);
+    if (!text || strcmp(text, expected) != 0) {
         fail("edited header does not match expected version");
         fprintf(stderr,
                 "---------- Expected:\n%s\n"
@@ -1226,6 +1260,23 @@ static void samrecord_layout(void)
                          "test/sam_alignment.tmp.sam_", "w", NULL);
 }
 
+static int check_ref_lengths(const sam_hdr_t *header,
+                             const hts_pos_t *expected_lengths,
+                             int num_refs, const char *hdr_name)
+{
+    int i;
+    for (i = 0; i < num_refs; i++) {
+        hts_pos_t ln = sam_hdr_tid2len(header, i);
+        if (ln != expected_lengths[i]) {
+            fail("Wrong length for %s ref %d : "
+                 "expected %"PRIhts_pos" got %"PRIhts_pos"\n",
+                 hdr_name, i, expected_lengths[i], ln);
+            return -1;
+        }
+    }
+    return 0;
+}
+
 static void check_big_ref(int parse_header)
 {
     static const char sam_text[] = "data:,"
@@ -1257,7 +1308,7 @@ static void check_big_ref(int parse_header)
         -1, -1, -1, 9223372034707292150LL - 1, 1LL - 1, -1
     };
     samFile *in = NULL, *out = NULL;
-    sam_hdr_t *header = NULL;
+    sam_hdr_t *header = NULL, *dup_header = NULL;
     bam1_t *aln = bam_init1();
     const int num_refs = sizeof(expected_lengths) / sizeof(expected_lengths[0]);
     const int num_align = sizeof(expected_tids) / sizeof(expected_tids[0]);
@@ -1288,21 +1339,33 @@ static void check_big_ref(int parse_header)
         goto cleanup;
     }
     if (parse_header) {
-        // This will force the reader to be parsed
+        // This will force the header to be parsed
         if (sam_hdr_count_lines(header, "SQ") != num_refs) {
             fail("Wrong number of SQ lines in header");
             goto cleanup;
         }
     }
-    for (i = 0; i < num_refs; i++) {
-        hts_pos_t ln = sam_hdr_tid2len(header, i);
-        if (ln != expected_lengths[i]) {
-            fail("Wrong length for ref %d : "
-                 "expected %"PRIhts_pos" got %"PRIhts_pos"\n",
-                 i, expected_lengths[i], ln);
-            goto cleanup;
-        }
+    if (check_ref_lengths(header, expected_lengths, num_refs, "header") < 0)
+        goto cleanup;
+
+    dup_header = sam_hdr_dup(header);
+    if (!dup_header) {
+        fail("Failed to duplicate header");
     }
+
+    if (check_ref_lengths(dup_header, expected_lengths,
+                          num_refs, "duplicate header") < 0)
+        goto cleanup;
+
+    if (sam_hdr_count_lines(dup_header, "SQ") != num_refs) {
+        fail("Wrong number of SQ lines in duplicate header");
+        goto cleanup;
+    }
+
+    if (check_ref_lengths(dup_header, expected_lengths,
+                          num_refs, "parsed duplicate header") < 0)
+        goto cleanup;
+
     if (sam_hdr_write(out, header) < 0) {
         fail("Failed to write SAM header");
         goto cleanup;
@@ -1379,6 +1442,7 @@ static void check_big_ref(int parse_header)
  cleanup:
     bam_destroy1(aln);
     sam_hdr_destroy(header);
+    sam_hdr_destroy(dup_header);
     if (in) sam_close(in);
     if (out) sam_close(out);
     if (inf) fclose(inf);
@@ -1521,7 +1585,7 @@ static int generator(const char *name)
     }
 
     if (fputs("@HD\tVN:1.4\n", f) < 0) goto cleanup;
-    if (fprintf(f, "@SQ\tSN:ref1\tLN:%u\n", MAX_RECS + SEQ_LEN) < 0)
+    if (fprintf(f, "@SQ\tSN:ref1\tLN:%d\n", MAX_RECS + SEQ_LEN) < 0)
         goto cleanup;
     for (i = 0; i < MAX_RECS; i++) {
         if (fprintf(f, "read%zu\t0\tref1\t%zu\t64\t100M\t*\t0\t0\t%.*s\t%.*s\n",
@@ -1593,7 +1657,7 @@ static void test_mempolicy(void)
     const char *fname = "test/sam_alignment.tmp.sam";
     const char *bam_name = "test/sam_alignment.tmp.bam";
     const char *cram_name = "test/sam_alignment.tmp.cram";
-    const char *tag_text =
+    const char tag_text[] =
         "lengthy text ... lengthy text ... lengthy text ... lengthy text ... "
         "lengthy text ... lengthy text ... lengthy text ... lengthy text ... "
         "lengthy text ... lengthy text ... lengthy text ... lengthy text ... "

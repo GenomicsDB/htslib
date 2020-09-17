@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2009 Genome Research Ltd.
+Copyright (c) 2009, 2013, 2015, 2018-2019 Genome Research Ltd.
 Author: Rob Davies <rmd@sanger.ac.uk>
 
 Redistribution and use in source and binary forms, with or without
@@ -28,14 +28,15 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#define HTS_BUILDING_LIBRARY // Enables HTSLIB_EXPORT, see htslib/hts_defs.h
 #include <config.h>
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
 
-#include "cram/pooled_alloc.h"
-#include "cram/misc.h"
+#include "pooled_alloc.h"
+#include "misc.h"
 
 //#define DISABLE_POOLED_ALLOC
 //#define TEST_MAIN
@@ -198,6 +199,7 @@ int main(void) {
         pool_free(p, item);
     }
 
+    free(items);
     return 0;
 }
 #endif
