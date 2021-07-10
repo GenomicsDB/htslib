@@ -3104,7 +3104,7 @@ static int vcf_parse_info(kstring_t *str, const bcf_hdr_t *h, bcf1_t *v, char *p
                   }
                 }
                 else
-                  v->rlen = end_val - 1 - v->pos;
+                  v->rlen = end_val - v->pos;
               }
             }
             else if ((y>>4&0xf) == BCF_HT_REAL) {
